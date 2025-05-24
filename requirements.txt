@@ -6,3 +6,4 @@ pdfplumber
 fuzzywuzzy
 pymupdf
 python-multipart
+jinja2
