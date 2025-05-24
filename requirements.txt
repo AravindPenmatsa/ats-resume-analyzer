@@ -7,3 +7,4 @@ fuzzywuzzy
 pymupdf
 python-multipart
 jinja2
+PyPDF2
