@@ -1,25 +1,18 @@
 
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from app.routes import router
 
 app = FastAPI()
 app.include_router(router)
 
+templates = Jinja2Templates(directory="templates")
+
 @app.get("/", response_class=HTMLResponse)
-def homepage():
-    return """
-    <h2>✅ Resume Analyzer App is Live</h2>
-    <a href='/upload'>Click here to upload a resume</a>
-    """
+async def homepage(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
 @app.get("/upload", response_class=HTMLResponse)
-def upload_page():
-    return """
-    <h3>Upload Your Resume (TXT or PDF):</h3>
-    <form action="/evaluate" method="post" enctype="multipart/form-data">
-        Resume: <input type="file" name="resume"><br><br>
-        Job Description: <input type="file" name="jobdesc"><br><br>
-        <input type="submit" value="Evaluate">
-    </form>
-    """
+async def upload_page(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
