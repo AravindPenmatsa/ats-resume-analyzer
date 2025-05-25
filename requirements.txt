@@ -1,10 +1,7 @@
-
 fastapi
 uvicorn
 jinja2
-python-multipart
-PyMuPDF
-docx2txt
 python-docx
+docx2txt
 spacy
-fitz
+PyMuPDF
