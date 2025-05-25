@@ -62,9 +62,7 @@
       background-color: #343a40;
       color: white;
     }
-    .chart-container,
-    .bars-container,
-    .summary-box {
+    .chart-container, .summary-box {
       margin-top: 2rem;
       background: white;
       padding: 1rem;
@@ -80,6 +78,28 @@
     #matchRateChart {
       max-width: 240px;
       margin: 0 auto;
+    }
+    .bars-container {
+      margin-top: 2rem;
+    }
+    .bar-label {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 5px;
+      font-weight: 600;
+    }
+    .bar-wrapper {
+      background-color: #f0f0f0;
+      height: 16px;
+      border-radius: 8px;
+      margin-bottom: 1rem;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      width: 0;
+      border-radius: 8px;
+      transition: width 1s ease-in-out;
     }
   </style>
 </head>
@@ -147,18 +167,20 @@
 
         <div class="bars-container">
           <p class="has-text-weight-bold">Skill Match Breakdown</p>
-          <div>
-            <label>Hard Skills <span class="tooltip-icon" title="Match of technical skills like automation tools">&#9432;</span></label>
-            <progress class="progress is-info" value="{{ hard_score }}" max="100">{{ hard_score }}%</progress>
+          <div class="bar-label">
+            <span>Hard Skills</span><span>{{ hard_score }}%</span>
           </div>
-          <div>
-            <label>Soft Skills <span class="tooltip-icon" title="Interpersonal or non-technical skills match">&#9432;</span></label>
-            <progress class="progress is-success" value="{{ soft_score }}" max="100">{{ soft_score }}%</progress>
+          <div class="bar-wrapper"><div class="bar-fill" id="barHard"></div></div>
+
+          <div class="bar-label">
+            <span>Soft Skills</span><span>{{ soft_score }}%</span>
           </div>
-          <div>
-            <label>Searchability <span class="tooltip-icon" title="How well your resume can be parsed by an ATS">&#9432;</span></label>
-            <progress class="progress is-warning" value="{{ search_score }}" max="100">{{ search_score }}%</progress>
+          <div class="bar-wrapper"><div class="bar-fill" id="barSoft"></div></div>
+
+          <div class="bar-label">
+            <span>Searchability</span><span>{{ search_score }}%</span>
           </div>
+          <div class="bar-wrapper"><div class="bar-fill" id="barSearch"></div></div>
         </div>
         {% endif %}
 
@@ -168,6 +190,7 @@
           <a href="{{ download_link }}" class="button is-link mt-2">Download Optimized Resume</a>
         </div>
         {% endif %}
+
         <p class="has-text-centered mt-4">Powered by ATS Resume Analyzer</p>
       </div>
     </div>
@@ -184,7 +207,7 @@
       new Chart(ctx, {
         type: 'doughnut',
         data: {
-          labels: ['Match', 'Remaining'], // explicitly set labels
+          labels: ['Match', 'Remaining'],
           datasets: [{
             data: [score, 100 - score],
             backgroundColor: [color, '#f0f0f0'],
@@ -193,37 +216,35 @@
         },
         options: {
           cutout: '75%',
-          layout: {
-            padding: {
-              top: 10,
-              bottom: 10
-            }
-          },
-          animation: {
-            animateRotate: true,
-            duration: 1000
-          },
+          layout: { padding: { top: 10, bottom: 10 } },
+          animation: { animateRotate: true, duration: 1000 },
           plugins: {
             tooltip: { enabled: false },
             legend: { display: false },
             datalabels: {
-              display: function (context) {
-                return context.dataIndex === 0; // show label only on the main arc (score)
-              },
+              display: context => context.dataIndex === 0,
               color: '#111',
-              font: {
-                weight: 'bold',
-                size: 18
-              },
-              formatter: function (value, context) {
-                return context.dataIndex === 0 ? `${score}%` : '';
-              }
+              font: { weight: 'bold', size: 18 },
+              formatter: () => `${score}%`
             }
           }
         },
         plugins: [ChartDataLabels]
       });
     }
+
+    function animateBar(id, value) {
+      const bar = document.getElementById(id);
+      if (!bar) return;
+      bar.style.width = value + "%";
+      if (value >= 75) bar.style.backgroundColor = "#28a745";
+      else if (value >= 50) bar.style.backgroundColor = "#ffc107";
+      else bar.style.backgroundColor = "#dc3545";
+    }
+
+    animateBar("barHard", Number('{{ hard_score | default(0) }}'));
+    animateBar("barSoft", Number('{{ soft_score | default(0) }}'));
+    animateBar("barSearch", Number('{{ search_score | default(0) }}'));
   });
 </script>
 </body>
