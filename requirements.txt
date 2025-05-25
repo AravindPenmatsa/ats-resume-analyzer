@@ -6,3 +6,5 @@ python-multipart
 PyMuPDF
 docx2txt
 python-docx
+spacy
+fitz
