@@ -1,10 +1,8 @@
 
 fastapi
 uvicorn
-python-docx
-pdfplumber
-fuzzywuzzy
-pymupdf
-python-multipart
 jinja2
-PyPDF2
+python-multipart
+PyMuPDF
+docx2txt
+python-docx
