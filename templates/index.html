@@ -1,106 +1,230 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Resume Optimizer</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.9.3/css/bulma.min.css">
-    <style>
-        body {
-            background: linear-gradient(to right, #e0f7fa, #e1bee7);
-        }
-        .resume-header {
-            background-color: #007BFF;
-            color: white;
-            padding: 1rem;
-            text-align: center;
-            font-weight: bold;
-            font-size: 1.5rem;
-            border-radius: 6px 6px 0 0;
-        }
-        .columns-wrapper {
-            display: flex;
-            justify-content: center;
-            align-items: flex-start;
-            gap: 2rem;
-        }
-        .left-image {
-            flex: 0 0 auto;
-        }
-        .left-image img {
-            max-width: 300px;
-            height: auto;
-            border-radius: 8px;
-        }
-        .form-box {
-            max-width: 600px;
-            width: 100%;
-            background: white;
-            padding: 2rem;
-            border-radius: 8px;
-            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Resume Optimizer</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.9.3/css/bulma.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    body {
+      background: linear-gradient(to right, #d5f4ff, #f5e1ff);
+      background-size: cover;
+      min-height: 100vh;
+      padding: 2rem 0;
+    }
+    .resume-header {
+      background-color: #4a47a3;
+      color: white;
+      padding: 1rem;
+      text-align: center;
+      font-weight: bold;
+      font-size: 1.5rem;
+      border-radius: 6px 6px 0 0;
+    }
+    .columns-wrapper {
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      gap: 2rem;
+      flex-wrap: wrap;
+    }
+    .left-image {
+      flex: 0 0 auto;
+      text-align: center;
+    }
+    .left-image img {
+      max-width: 300px;
+      height: auto;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+    .form-box {
+      max-width: 650px;
+      width: 100%;
+      background: #fefefe;
+      padding: 2rem;
+      border-radius: 10px;
+      box-shadow: 0 3px 15px rgba(0, 0, 0, 0.2);
+    }
+    .notification.is-info {
+      background-color: #007bff;
+      color: white;
+    }
+    .notification.is-success {
+      background-color: #28a745;
+      color: white;
+    }
+    .button.is-link {
+      background-color: #343a40;
+      color: white;
+    }
+    .chart-container,
+    .bars-container,
+    .summary-box {
+      margin-top: 2rem;
+      background: white;
+      padding: 1rem;
+      border-radius: 8px;
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+    }
+    .tooltip-icon {
+      cursor: pointer;
+      margin-left: 5px;
+      font-weight: bold;
+      color: #888;
+    }
+    #matchRateChart {
+      max-width: 240px;
+      margin: 0 auto;
+    }
+  </style>
 </head>
 <body>
 <section class="section">
-    <div class="container">
-        <div class="columns-wrapper">
-            <div class="left-image">
-                <img src="https://thumbs.dreamstime.com/z/smiling-young-businessman-laptop-portrait-isolated-over-white-background-horizontal-shot-39365864.jpg" alt="Man with Laptop">
-            </div>
-            <div class="box form-box">
-                <div class="resume-header">FREE RESUME SCANNER</div>
-                <h1 class="title has-text-centered mt-4">How Good Is Your Resume?</h1>
-                <p class="subtitle has-text-centered">Get Your Free Resume Score & Feedback In Seconds</p>
-                <form action="/upload" method="post" enctype="multipart/form-data">
-                    <div class="field">
-                        <label class="label">Upload Resume (TXT, PDF, DOCX):</label>
-                        <div class="control">
-                            <input class="input" type="file" name="resume" required>
-                        </div>
-                    </div>
-                    <div class="field">
-                        <label class="label">Upload Job Description (TXT, PDF, DOCX):</label>
-                        <div class="control">
-                            <input class="input" type="file" name="jobdesc" required>
-                        </div>
-                    </div>
-                    <div class="field">
-                        <label class="label">Would you like a downloadable optimized resume?</label>
-                        <div class="control">
-                            <div class="select">
-                                <select name="generate_download">
-                                    <option value="no">No</option>
-                                    <option value="yes">Yes</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="field">
-                        <div class="control">
-                            <button class="button is-primary is-fullwidth" type="submit">Evaluate</button>
-                        </div>
-                    </div>
-                </form>
-                {% if score is defined %}
-                <div class="notification is-info mt-4">
-                    <strong>Match Score: {{ score }}%</strong>
-                    <br>
-                    Try adding these keywords to improve your score: {{ suggestions }}
-                </div>
-                {% endif %}
-                {% if download_link is defined %}
-                <div class="notification is-success mt-4">
-                    <strong>Your optimized resume is ready:</strong>
-                    <br>
-                    <a href="{{ download_link }}" class="button is-link mt-2">Download Optimized Resume</a>
-                </div>
-                {% endif %}
-                <p class="has-text-centered mt-4">Powered by ATS Resume Analyzer</p>
-            </div>
+  <div class="container">
+    <div class="columns-wrapper">
+      <div class="left-image">
+        <img src="https://thumbs.dreamstime.com/z/smiling-young-businessman-laptop-portrait-isolated-over-white-background-horizontal-shot-39365864.jpg"
+             alt="Man with Laptop">
+        {% if score is defined %}
+        <div style="margin-top: 2rem; padding: 0 1rem;">
+          <h2 class="has-text-centered has-text-weight-semibold">Match Rate</h2>
+          <div style="width: 240px; height: 240px; margin: 0 auto;">
+            <canvas id="matchRateChart" width="240" height="240"></canvas>
+          </div>
         </div>
+        {% endif %}
+      </div>
+
+      <div class="box form-box" id="report-section">
+        <div class="resume-header">FREE RESUME SCANNER</div>
+        <h1 class="title has-text-centered mt-4">How Good Is Your Resume?</h1>
+        <p class="subtitle has-text-centered">Get Your Free Resume Score & Feedback In Seconds</p>
+        <form action="/upload" method="post" enctype="multipart/form-data">
+          <div class="field">
+            <label class="label">Upload Resume (TXT, PDF, DOCX):</label>
+            <div class="control">
+              <input class="input" type="file" name="resume" required>
+            </div>
+          </div>
+          <div class="field">
+            <label class="label">Upload Job Description (TXT, PDF, DOCX):</label>
+            <div class="control">
+              <input class="input" type="file" name="jobdesc" required>
+            </div>
+          </div>
+          <div class="field">
+            <label class="label">Would you like a downloadable optimized resume?</label>
+            <div class="control">
+              <div class="select">
+                <select name="generate_download">
+                  <option value="no">No</option>
+                  <option value="yes">Yes</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="field">
+            <div class="control">
+              <button class="button is-primary is-fullwidth" type="submit">Evaluate</button>
+            </div>
+          </div>
+        </form>
+
+        {% if score is defined %}
+        <div class="notification is-info mt-4">
+          <strong>Match Score: {{ score }}%</strong><br>
+          Try adding these keywords to improve your score: {{ suggestions }}
+        </div>
+
+        <div class="summary-box">
+          <p><strong>AI Summary:</strong> Your resume shows strong alignment with the job posting. Focus on improving your soft skills section and ensure ATS-friendliness by using consistent formatting and standard fonts. Consider tailoring bullet points to better reflect key job keywords.</p>
+        </div>
+
+        <div class="bars-container">
+          <p class="has-text-weight-bold">Skill Match Breakdown</p>
+          <div>
+            <label>Hard Skills <span class="tooltip-icon" title="Match of technical skills like automation tools">&#9432;</span></label>
+            <progress class="progress is-info" value="{{ hard_score }}" max="100">{{ hard_score }}%</progress>
+          </div>
+          <div>
+            <label>Soft Skills <span class="tooltip-icon" title="Interpersonal or non-technical skills match">&#9432;</span></label>
+            <progress class="progress is-success" value="{{ soft_score }}" max="100">{{ soft_score }}%</progress>
+          </div>
+          <div>
+            <label>Searchability <span class="tooltip-icon" title="How well your resume can be parsed by an ATS">&#9432;</span></label>
+            <progress class="progress is-warning" value="{{ search_score }}" max="100">{{ search_score }}%</progress>
+          </div>
+        </div>
+        {% endif %}
+
+        {% if download_link is defined %}
+        <div class="notification is-success mt-4">
+          <strong>Your optimized resume is ready:</strong><br>
+          <a href="{{ download_link }}" class="button is-link mt-2">Download Optimized Resume</a>
+        </div>
+        {% endif %}
+        <p class="has-text-centered mt-4">Powered by ATS Resume Analyzer</p>
+      </div>
     </div>
+  </div>
 </section>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const score = Number('{{ score | default(0) }}');
+    if (score && document.getElementById('matchRateChart')) {
+      const ctx = document.getElementById('matchRateChart').getContext('2d');
+      const color = score >= 75 ? '#28a745' : score >= 50 ? '#ffc107' : '#dc3545';
+
+      new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['Match', 'Remaining'], // explicitly set labels
+          datasets: [{
+            data: [score, 100 - score],
+            backgroundColor: [color, '#f0f0f0'],
+            borderWidth: 4
+          }]
+        },
+        options: {
+          cutout: '75%',
+          layout: {
+            padding: {
+              top: 10,
+              bottom: 10
+            }
+          },
+          animation: {
+            animateRotate: true,
+            duration: 1000
+          },
+          plugins: {
+            tooltip: { enabled: false },
+            legend: { display: false },
+            datalabels: {
+              display: function (context) {
+                return context.dataIndex === 0; // show label only on the main arc (score)
+              },
+              color: '#111',
+              font: {
+                weight: 'bold',
+                size: 18
+              },
+              formatter: function (value, context) {
+                return context.dataIndex === 0 ? `${score}%` : '';
+              }
+            }
+          }
+        },
+        plugins: [ChartDataLabels]
+      });
+    }
+  });
+</script>
 </body>
 </html>
