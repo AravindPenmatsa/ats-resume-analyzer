@@ -7,6 +7,8 @@ import shutil
 import fitz  # PyMuPDF
 import docx2txt
 from docx import Document
+from fastapi.responses import RedirectResponse
+
 
 app = FastAPI()
 
@@ -104,3 +106,7 @@ async def download_optimized_resume(filename: str):
     if os.path.exists(file_path):
         return FileResponse(file_path, media_type='application/octet-stream', filename=filename)
     return {"detail": "File not found"}
+
+@app.get("/", include_in_schema=False)
+async def root():
+    return RedirectResponse(url="/upload")
