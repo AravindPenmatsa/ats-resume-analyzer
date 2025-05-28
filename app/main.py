@@ -9,10 +9,13 @@ from app.utils import validate_resume_format, extract_keywords  # Reusable utili
 
 # Initialize FastAPI app
 app = FastAPI()
+app.debug = True
 
 # Serve static files and HTML templates
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+templates.env.auto_reload = True  # ✅ force reload
+app.template_folder = "templates"
 
 # Create folders for storing uploaded and generated resumes
 UPLOAD_DIR = "uploads"

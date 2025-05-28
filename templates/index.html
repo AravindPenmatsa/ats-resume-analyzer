@@ -179,31 +179,6 @@
                             <div class="bar-label"><span>Searchability</span><span>{{ search_score }}%</span></div>
                             <div class="bar-wrapper"><div class="bar-fill" id="barSearch"></div></div>
                         </div>
-                        {% endif %} {% if score is defined %}
-                        <div class="notification is-info mt-4">
-                            <strong>Match Score: {{ score }}%</strong><br />
-                            Try adding these keywords to improve your score: {{ suggestions }}
-                        </div>
-
-                        <div class="summary-box">
-                            <p>
-                                <strong>AI Summary:</strong> Your resume shows strong alignment with the job posting. Focus on improving your soft skills section and ensure ATS-friendliness by using consistent formatting and standard fonts.
-                                Consider tailoring bullet points to better reflect key job keywords.
-                            </p>
-                        </div>
-
-                        <div class="bars-container">
-                            <p class="has-text-weight-bold">Skill Match Breakdown</p>
-                            <div class="bar-label"><span>Hard Skills</span><span>{{ hard_score }}%</span></div>
-                            <div class="bar-wrapper"><div class="bar-fill" id="barHard"></div></div>
-
-                            <div class="bar-label"><span>Soft Skills</span><span>{{ soft_score }}%</span></div>
-                            <div class="bar-wrapper"><div class="bar-fill" id="barSoft"></div></div>
-
-                            <div class="bar-label"><span>Searchability</span><span>{{ search_score }}%</span></div>
-                            <div class="bar-wrapper"><div class="bar-fill" id="barSearch"></div></div>
-                        </div>
-
                         <!-- ✅ Show download section only when "yes" is selected -->
                         {% if download_link and generate_download == "yes" %}
                         <div class="notification is-success mt-4">
