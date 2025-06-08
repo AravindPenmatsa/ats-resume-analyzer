@@ -6,6 +6,7 @@ from fastapi.templating import Jinja2Templates
 from docx import Document
 from docx.shared import Pt
 import openai
+import subprocess
 import shutil, os, fitz, docx2txt, spacy, re, json
 from docx.oxml import OxmlElement
 from pathlib import Path
@@ -14,6 +15,11 @@ from docx.oxml.ns import qn
 from openai import OpenAI
 from .utils import validate_resume_format, extract_keywords  # Reusable utility functions
 
+try:
+    spacy.load("en_core_web_sm")
+except OSError:
+    subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"], check=True)
+    
 # Initialize FastAPI app
 app = FastAPI()
 load_dotenv()
