@@ -6,4 +6,4 @@ python-docx
 docx2txt
 spacy
 PyMuPDF
-python-multipar
+python-multipart
