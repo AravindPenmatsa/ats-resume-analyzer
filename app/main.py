@@ -4,7 +4,7 @@ from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from docx import Document
-from docx.shared import Pt
+from docx.shared import Pt, Inches
 import openai
 import subprocess
 import shutil, os, fitz, docx2txt, spacy, re, json
@@ -233,12 +233,14 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str) -> str:
         p_borders = OxmlElement('w:pBdr')
         bottom_border = OxmlElement('w:bottom')
         bottom_border.set(qn('w:val'), 'single')
-        bottom_border.set(qn('w:sz'), '6')
+        bottom_border.set(qn('w:sz'), '18')
         bottom_border.set(qn('w:space'), '1')
-        bottom_border.set(qn('w:color'), 'auto')
+        bottom_border.set(qn('w:color'), '87CEEB')
         p_borders.append(bottom_border)
         p_props = p_paragraph.get_or_add_pPr()
         p_props.append(p_borders)
+        p.paragraph_format.space_after = Pt(0)
+        p.paragraph_format.space_before = Pt(0)
 
     # ✅ Add contact header
     def add_header_section(doc):
@@ -287,6 +289,9 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str) -> str:
         "git/github", "jenkins", "sql", "sap abap"
     }
     lines = enhanced_text.strip().splitlines()
+    # Skip the first line if it matches the name exactly (to avoid stray name above Profile Summary)
+    if lines and lines[0].strip().lower() in ["aravind", "aravind penmatsa"]:
+        lines = lines[1:]
     filtered_lines = [
         line for line in lines
         if not any(k in line.lower() for k in header_keywords)
@@ -296,6 +301,9 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str) -> str:
     current_section = ""
     skip_keywords = {"Environment", "Responsibilities"}
     seen_sections = set()
+
+    # Track paragraphs for each section to apply keep_with_next/keep_together
+    section_paragraphs = []
 
     for idx, line in enumerate(filtered_lines):
         stripped = line.strip()
@@ -384,8 +392,43 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str) -> str:
         # Section headings
         if stripped.isupper() and len(stripped.split()) < 6:
             current_section = stripped
-            doc.add_heading(stripped.title(), level=1)
+            # Remove any name or extra paragraph before Profile Summary
+            if stripped.upper() == "PROFILE SUMMARY" and len(doc.paragraphs) > 0:
+                last_para = doc.paragraphs[-1]
+                if last_para.text.strip().lower() in ["aravind", "aravind penmatsa"]:
+                    p = doc.paragraphs.pop()
+            p_heading = doc.add_paragraph()
+            run_heading = p_heading.add_run(stripped.title())
+            run_heading.bold = True
+            run_heading.font.size = Pt(14) # Section header size
+            run_heading.font.name = "Calibri"
+            # No space after for section headings
+            p_heading.paragraph_format.space_after = Pt(0)
             add_horizontal_line(doc)
+            in_summary_section = (current_section.upper() == "PROFILE SUMMARY")
+            # --- Keep section heading with next paragraph ---
+            p_heading.paragraph_format.keep_with_next = True
+            p_heading.paragraph_format.keep_together = True
+            # For all sections, also keep the border line with next
+            border_paragraph = doc.paragraphs[-1]
+            border_paragraph.paragraph_format.keep_with_next = True
+            border_paragraph.paragraph_format.keep_together = True
+            # Start tracking section paragraphs
+            section_paragraphs = [p_heading, border_paragraph]
+            continue
+
+        # For all major sections, add content and track paragraphs
+        if current_section.upper() in ["EDUCATION", "TECHNICAL SKILLS", "CERTIFICATIONS", "PROJECTS", "PROFILE SUMMARY"] and stripped:
+            p_section = doc.add_paragraph(stripped)
+            p_section.paragraph_format.space_after = Pt(2)
+            p_section.paragraph_format.keep_together = True
+            section_paragraphs.append(p_section)
+            # If this is the last line in the section, set keep_with_next on all but the last
+            if idx + 1 == len(filtered_lines) or (idx + 1 < len(filtered_lines) and (filtered_lines[idx + 1].strip().isupper() or not filtered_lines[idx + 1].strip())):
+                for para in section_paragraphs[:-1]:
+                    para.paragraph_format.keep_with_next = True
+                section_paragraphs[-1].paragraph_format.keep_with_next = False
+                section_paragraphs = []
             continue
 
         # Skip duplicate/irrelevant sections
@@ -407,6 +450,48 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str) -> str:
     return output_path
 
 # Enhances the resume text by appending keyword content to the Profile Summary and CMS section
+def generate_profile_summary(job_title: str, skills: set) -> str:
+    """
+    Generates a professional profile summary with bullet points highlighting key skills and qualifications.
+    
+    Args:
+        job_title: The target job title/role
+        skills: Set of relevant skills to highlight
+        
+    Returns:
+        Formatted profile summary text with bullet points
+    """
+    # Group skills into categories
+    technical_skills = [s for s in skills if s.lower() in HARD_KEYWORDS]
+    soft_skills = [s for s in skills if s.lower() in SOFT_KEYWORDS]
+    
+    # Generate base summary
+    summary = f"PROFILE SUMMARY\n\n"
+    summary += f"Results-driven {job_title} with expertise in "
+    
+    # Add technical skills
+    if technical_skills:
+        summary += ", ".join(technical_skills[:3]) + ". "
+    
+    # Add soft skills
+    if soft_skills:
+        summary += f"Demonstrated strengths in {', '.join(soft_skills[:2])}. "
+    
+    # Add bullet points
+    summary += "\n\nKey Qualifications:\n"
+    
+    # Technical bullet points
+    for skill in technical_skills[:3]:
+        summary += f"• Proficient in {skill} with hands-on experience in development and implementation\n"
+    
+    # Soft skill bullet points
+    for skill in soft_skills[:2]:
+        summary += f"• Strong {skill} abilities enabling effective collaboration and project delivery\n"
+    
+    # Add achievement bullet point
+    summary += "• Track record of delivering high-quality solutions that meet business objectives\n"
+    
+    return summary
 
 def enhance_resume_text(resume_text: str, missing_keywords: set) -> str:
     # 1. Generate bullet-style achievements using GPT and format them with bullet points
