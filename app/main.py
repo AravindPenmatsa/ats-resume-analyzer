@@ -14,6 +14,8 @@ from dotenv import load_dotenv
 from docx.oxml.ns import qn
 from openai import OpenAI
 from .utils import validate_resume_format, extract_keywords  # Reusable utility functions
+from docx.enum.style import WD_STYLE_TYPE
+from docx.text.run import WD_BREAK
 
 try:
     spacy.load("en_core_web_sm")
@@ -221,6 +223,19 @@ def save_optimized_resume(filename: str, resume_text: str, suggestions: str) -> 
 
     return output_path
 
+def add_bottom_border(paragraph, color="87CEEB", size="18"):
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    p = paragraph._p
+    p_borders = OxmlElement('w:pBdr')
+    bottom_border = OxmlElement('w:bottom')
+    bottom_border.set(qn('w:val'), 'single')
+    bottom_border.set(qn('w:sz'), size)
+    bottom_border.set(qn('w:space'), '1')
+    bottom_border.set(qn('w:color'), color)
+    p_borders.append(bottom_border)
+    p.get_or_add_pPr().append(p_borders)
+
 def generate_formatted_resume_docx(filename: str, enhanced_text: str) -> str:
     doc = Document()
     output_path = os.path.join("generated_resumes", f"{os.path.splitext(filename)[0]}_formatted.docx")
@@ -293,9 +308,10 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str) -> str:
     if lines and lines[0].strip().lower() in ["aravind", "aravind penmatsa"]:
         lines = lines[1:]
     filtered_lines = [
-        line for line in lines
-        if not any(k in line.lower() for k in header_keywords)
-        and not any(line.strip().lower().startswith(k) for k in table_keywords)
+        line for i, line in enumerate(lines)
+          if not (i < 15 and any(k in line.lower() for k in header_keywords))
+          and not any(line.strip().lower().startswith(k) for k in table_keywords)
+          and line.strip()
     ]
     # ✅ Build resume body
     current_section = ""
@@ -304,93 +320,42 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str) -> str:
 
     # Track paragraphs for each section to apply keep_with_next/keep_together
     section_paragraphs = []
+    # Track lines for plain-text sections
+    plain_section_lines = []
+    plain_sections = ["EDUCATION", "TECHNICAL SKILLS", "CERTIFICATIONS"]
 
+    if 'SingleSpace' not in [s.name for s in doc.styles]:
+        single_space_style = doc.styles.add_style('SingleSpace', WD_STYLE_TYPE.PARAGRAPH)
+        single_space_style.font.name = 'Calibri'
+        single_space_style.font.size = Pt(11)
+        single_space_style.paragraph_format.line_spacing = 1.0
+        single_space_style.paragraph_format.space_after = Pt(0)
+        single_space_style.paragraph_format.space_before = Pt(0)
+    
+    bold_next_line = False
     for idx, line in enumerate(filtered_lines):
         stripped = line.strip()
-
-        # Modified regex to match Company, City, State, and optional Duration on the same line
-        # This will correctly identify lines like "Dish Network, Denver, CO Nov 2021 to Sep 2022"
-        company_line_match = re.match(
-            r"^([A-Za-z0-9 &().-]+)\s*,\s*([A-Za-z .-]+)\s*,\s*([A-Z]{2})\s*([A-Za-z]{3,9}\s+\d{4}(?:\s*(?:to|–|-)\s*[A-Za-z]{3,9}\s+\d{4})?)?$",
-            stripped
-        )
-        
-        if company_line_match:
-            company = company_line_match.group(1).strip()
-            city = company_line_match.group(2).strip()
-            state = company_line_match.group(3).strip()
-            duration_on_line = company_line_match.group(4) # This will be None if duration not present on this line
-
-            # Try to get job title and duration from next lines if not found on current line
-            job_title = ""
-            duration = duration_on_line if duration_on_line else "" # Use duration from line if present
-
-            # Check next lines for job title and duration if not on current line
-            if not duration_on_line: # Only look for duration on next lines if it wasn't on current line
-                if idx + 1 < len(filtered_lines):
-                    next_line = filtered_lines[idx + 1].strip()
-                    if next_line and not next_line.isupper() and not next_line.startswith(("•", "-")) and not re.match(r"^[A-Za-z]{3,9}\s+\d{4}", next_line):
-                        job_title = next_line
-                        idx_offset = 2
-                    else:
-                        idx_offset = 1
-                    if idx + idx_offset < len(filtered_lines):
-                        duration_candidate = filtered_lines[idx + idx_offset].strip()
-                        if re.match(r"^[A-Za-z]{3,9}\s+\d{4}\s*(to|–|-)\s*[A-Za-z]{3,9}\s+\d{4}$", duration_candidate) or re.match(r"^[A-Za-z]{3,9}\s+\d{4}$", duration_candidate):
-                            duration = duration_candidate
-
-            # Add two blank lines before company block
-            doc.add_paragraph()
-            doc.add_paragraph()
-            table = doc.add_table(rows=1, cols=2)
-            table.autofit = False
-            table.columns[0].width = Pt(400)
-            table.columns[1].width = Pt(200)
-
-            # Left cell: company, job title
-            cell_left = table.cell(0, 0)
-            p_left = cell_left.paragraphs[0]
-            
-            # Apply bolding only to the company name
-            run_company_name = p_left.add_run(company)
-            run_company_name.bold = True
-            run_company_name.font.size = Pt(16)
-            run_company_name.font.name = "Calibri"
-            r_name = run_company_name._element
-            r_name.rPr.rFonts.set(qn('w:eastAsia'), "Calibri")
-
-            # Add city and state without bolding, maintaining same font size and name
-            run_location = p_left.add_run(f", {city}, {state}")
-            run_location.font.size = Pt(16)
-            run_location.font.name = "Calibri"
-            r_location = run_location._element
-            r_location.rPr.rFonts.set(qn('w:eastAsia'), "Calibri")
-
-            if job_title:
-               p_left.add_run("\n")
-               run_title = p_left.add_run(job_title)
-               run_title.italic = True
-               run_title.font.size = Pt(12)
-               run_title.font.name = "Calibri"
-               r2 = run_title._element
-               r2.rPr.rFonts.set(qn('w:eastAsia'), "Calibri")
-
-            # Right cell: duration
-            cell_right = table.cell(0, 1)
-            p_right = cell_right.paragraphs[0]
-            p_right.alignment = 2
-            if duration:
-                run_right = p_right.add_run(duration)
-                run_right.bold = True
-                run_right.font.size = Pt(12)
-                run_right.font.name = "Calibri"
-                r3 = run_right._element
-                r3.rPr.rFonts.set(qn('w:eastAsia'), "Calibri")
-
-            continue  # Important to skip rest of loop for company lines
-
         # Section headings
         if stripped.isupper() and len(stripped.split()) < 6:
+            # Before switching section, flush any collected plain section lines
+            if current_section.upper() in plain_sections and plain_section_lines:
+                p_section = doc.add_paragraph('\n'.join(plain_section_lines), style='SingleSpace')
+                p_section.paragraph_format.space_after = Pt(0)
+                p_section.paragraph_format.space_before = Pt(0)
+                #p_section.paragraph_format.keep_together = True
+                p_section.paragraph_format.line_spacing = 1.0
+                section_paragraphs.append(p_section)
+                # Add a blank line for spacing after the section
+                p_blank = doc.add_paragraph()
+                p_blank.paragraph_format.space_after = Pt(0)
+                p_blank.paragraph_format.space_before = Pt(0)
+                #p_blank.paragraph_format.keep_together = True
+                section_paragraphs.append(p_blank)
+                #for para in section_paragraphs[:-1]:
+                #    para.paragraph_format.keep_with_next = True
+                #section_paragraphs[-1].paragraph_format.keep_with_next = False
+                section_paragraphs = []
+                plain_section_lines = []
             current_section = stripped
             # Remove any name or extra paragraph before Profile Summary
             if stripped.upper() == "PROFILE SUMMARY" and len(doc.paragraphs) > 0:
@@ -402,33 +367,77 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str) -> str:
             run_heading.bold = True
             run_heading.font.size = Pt(14) # Section header size
             run_heading.font.name = "Calibri"
-            # No space after for section headings
             p_heading.paragraph_format.space_after = Pt(0)
-            add_horizontal_line(doc)
+            if stripped.title() != "Projects":
+                    add_bottom_border(p_heading)
             in_summary_section = (current_section.upper() == "PROFILE SUMMARY")
-            # --- Keep section heading with next paragraph ---
             p_heading.paragraph_format.keep_with_next = True
             p_heading.paragraph_format.keep_together = True
-            # For all sections, also keep the border line with next
             border_paragraph = doc.paragraphs[-1]
             border_paragraph.paragraph_format.keep_with_next = True
             border_paragraph.paragraph_format.keep_together = True
-            # Start tracking section paragraphs
             section_paragraphs = [p_heading, border_paragraph]
             continue
 
-        # For all major sections, add content and track paragraphs
-        if current_section.upper() in ["EDUCATION", "TECHNICAL SKILLS", "CERTIFICATIONS", "PROJECTS", "PROFILE SUMMARY"] and stripped:
-            p_section = doc.add_paragraph(stripped)
-            p_section.paragraph_format.space_after = Pt(2)
-            p_section.paragraph_format.keep_together = True
-            section_paragraphs.append(p_section)
-            # If this is the last line in the section, set keep_with_next on all but the last
-            if idx + 1 == len(filtered_lines) or (idx + 1 < len(filtered_lines) and (filtered_lines[idx + 1].strip().isupper() or not filtered_lines[idx + 1].strip())):
-                for para in section_paragraphs[:-1]:
-                    para.paragraph_format.keep_with_next = True
-                section_paragraphs[-1].paragraph_format.keep_with_next = False
+        # For plain-text sections, collect lines
+        if current_section.upper() in plain_sections and stripped:
+            plain_section_lines.append(stripped)
+            # Only flush at the end of the section
+            is_last_line = idx + 1 == len(filtered_lines) or (idx + 1 < len(filtered_lines) and (filtered_lines[idx + 1].strip().isupper() or not filtered_lines[idx + 1].strip()))
+            if is_last_line:
+                p_section = doc.add_paragraph('\n'.join(plain_section_lines), style='SingleSpace')
+                p_section.paragraph_format.space_after = Pt(0)
+                p_section.paragraph_format.space_before = Pt(0)
+                #p_section.paragraph_format.keep_together = True
+                p_section.paragraph_format.line_spacing = 1.0
+                section_paragraphs.append(p_section)
+                # Add a blank line for spacing after the section
+                p_blank = doc.add_paragraph()
+                p_blank.paragraph_format.space_after = Pt(0)
+                p_blank.paragraph_format.space_before = Pt(0)
+                #p_blank.paragraph_format.keep_together = True
+                section_paragraphs.append(p_blank)
+                #for para in section_paragraphs[:-1]:
+                #    para.paragraph_format.keep_with_next = True
+                #section_paragraphs[-1].paragraph_format.keep_with_next = False
                 section_paragraphs = []
+                plain_section_lines = []
+            continue
+
+        # For other major sections (bulleted, etc.), keep previous logic
+        # Logic to handle Project section line-by-line based on date duration
+        if current_section.upper() == "PROJECTS":
+            # Regex to find a date range like "Nov 2021 to Sep 2022" or "Sep 2022 to Present"
+            date_pattern = r'(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*)\s+\d{4}\s+(?:to|–|-)\s+(?:Present|(?:\w+\s+)?\d{4})'
+            
+            is_header_with_date = re.search(date_pattern, stripped, re.IGNORECASE)
+            is_bullet = stripped.startswith('•')
+
+            if is_header_with_date:
+                # If the line has a date, bold it and set a flag to bold the next line (likely the job title)
+                p = doc.add_paragraph()
+                run = p.add_run(stripped)
+                run.bold = True
+                p.paragraph_format.space_after = Pt(0)
+                bold_next_line = True
+            elif bold_next_line and not is_bullet and stripped:
+                # If the flag is set and this isn't a bullet, bold this line and reset the flag
+                p = doc.add_paragraph()
+                run = p.add_run(stripped)
+                run.bold = True
+                p.paragraph_format.space_after = Pt(0)
+                bold_next_line = False
+            elif is_bullet:
+                # If it's a bullet point, add it as a list item and reset the flag
+                p = doc.add_paragraph(stripped, style='List Bullet')
+                p.paragraph_format.space_after = Pt(0)
+                bold_next_line = False
+            elif stripped:
+                # For any other line (like "Responsibilities:"), add it as a normal paragraph
+                p = doc.add_paragraph(stripped)
+                p.paragraph_format.space_after = Pt(0)
+                bold_next_line = False
+            
             continue
 
         # Skip duplicate/irrelevant sections
