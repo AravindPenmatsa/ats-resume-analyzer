@@ -82,7 +82,16 @@ HARD_KEYWORDS = {
     "technical writing", "api documentation", "swagger", "postman", "regex", "seo", "web performance optimization", "data modeling", "business intelligence", "jira"
 }
 SOFT_KEYWORDS = {"communication", "leadership", "teamwork", "collaboration", "adaptability", "problem-solving", "critical thinking", "flexibility"}
-ACTION_VERBS = {"developed", "led", "implemented", "designed", "created", "improved", "managed", "coordinated", "delivered", "built"}
+
+# --- ADD THIS SET DEFINITION ---
+ACTION_VERBS = {
+        "designed", "developed", "solved", "continuously", "conducted", "executed", "engaged", 
+        "documented", "actively", "managed", "validated", "performed", "applied", "explored", 
+        "gained", "contributed", "worked", "utilized", "configured", "implemented", "automated", 
+        "created", "monitored", "used", "collaborated", "logged", "integrated", "tested", 
+        "prepared", "good", "strong", "use", "demonstrated", "simulated", "analyzed", "tuned",
+        "built", "performed", "participated", "verified"
+}
 
 # Function to extract plain text from uploaded resume file
 def extract_text_from_file(upload_file: UploadFile) -> str:
@@ -240,10 +249,10 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str) -> str:
     doc = Document()
     output_path = os.path.join("generated_resumes", f"{os.path.splitext(filename)[0]}_formatted.docx")
 
-    # ✅ Add horizontal line below header
+    # ✅ Add horizontal line below header (No change)
     def add_horizontal_line(doc):
         p = doc.add_paragraph()
-        p.alignment = 1
+        p.alignment = 1  # Centered
         p_paragraph = p._p
         p_borders = OxmlElement('w:pBdr')
         bottom_border = OxmlElement('w:bottom')
@@ -257,7 +266,7 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str) -> str:
         p.paragraph_format.space_after = Pt(0)
         p.paragraph_format.space_before = Pt(0)
 
-    # ✅ Add contact header
+    # ✅ Add contact header (No change)
     def add_header_section(doc):
         name = "Aravind Penmatsa"
         title = "SDET"
@@ -283,7 +292,7 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str) -> str:
         add_centered_text(phone)
         add_centered_text(linkedin)
         add_centered_text(location)
-        doc.add_paragraph()       # spacer
+        doc.add_paragraph()      # spacer
 
     # ✅ Insert the header section
     add_header_section(doc)
@@ -309,13 +318,14 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str) -> str:
         lines = lines[1:]
     filtered_lines = [
         line for i, line in enumerate(lines)
-          if not (i < 15 and any(k in line.lower() for k in header_keywords))
-          and not any(line.strip().lower().startswith(k) for k in table_keywords)
-          and line.strip()
+        if not (i < 15 and any(k in line.lower() for k in header_keywords))
+        and not any(line.strip().lower().startswith(k) for k in table_keywords)
+        and line.strip()
     ]
     # ✅ Build resume body
     current_section = ""
-    skip_keywords = {"Environment", "Responsibilities"}
+    # Removed "Responsibilities" from skip_keywords as we want to process it
+    skip_keywords = {"Environment"} 
     seen_sections = set()
 
     # Track paragraphs for each section to apply keep_with_next/keep_together
@@ -332,9 +342,26 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str) -> str:
         single_space_style.paragraph_format.space_after = Pt(0)
         single_space_style.paragraph_format.space_before = Pt(0)
     
-    bold_next_line = False
+    project_header_buffer = [] 
+    
+    def is_company_line(line):
+        # Increased robustness for company/location/state/dates
+        return bool(re.search(r'([A-Za-z&.,\s]+),\s*([A-Za-z ]+,)?\s*[A-Z]{2,}(?:\s+|\t)+(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}|\d{4})\s*(?:to|–|-)?\s*(?:Present|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}|\d{4})', line))
+
+
+    def is_title_line(line):
+        # Looks for a line with a job title (e.g., Sr.SDET, QA Automation Engineer, Jr QA Analyst)
+        return bool(re.search(r'\b(Sr\.|Jr\.)?\s*(QA|SDET|Automation Engineer|Analyst|Developer|Manager|Lead|Consultant|Architect|Tester)\b', line, re.I))
+
+    def is_duration_line(line):
+        # Looks for a line with a date range, including "Present" and handling "to" or "–"
+        return bool(re.search(r'((Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}\s*(to|–|-)\s*(Present|(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4})|\d{4}\s*-\s*Present)', line, re.I))
+
     for idx, line in enumerate(filtered_lines):
+        # Important: Temporarily strip potential leading bullets for header detection
+        temp_stripped = line.strip().lstrip('•').lstrip('-').strip() 
         stripped = line.strip()
+
         # Section headings
         if stripped.isupper() and len(stripped.split()) < 6:
             # Before switching section, flush any collected plain section lines
@@ -342,118 +369,149 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str) -> str:
                 p_section = doc.add_paragraph('\n'.join(plain_section_lines), style='SingleSpace')
                 p_section.paragraph_format.space_after = Pt(0)
                 p_section.paragraph_format.space_before = Pt(0)
-                #p_section.paragraph_format.keep_together = True
                 p_section.paragraph_format.line_spacing = 1.0
                 section_paragraphs.append(p_section)
                 # Add a blank line for spacing after the section
                 p_blank = doc.add_paragraph()
                 p_blank.paragraph_format.space_after = Pt(0)
                 p_blank.paragraph_format.space_before = Pt(0)
-                #p_blank.paragraph_format.keep_together = True
                 section_paragraphs.append(p_blank)
-                #for para in section_paragraphs[:-1]:
-                #    para.paragraph_format.keep_with_next = True
-                #section_paragraphs[-1].paragraph_format.keep_with_next = False
                 section_paragraphs = []
                 plain_section_lines = []
+            
+            # If we were in PROJECTS and had buffered lines, flush them as bold now
+            if current_section.upper() == "PROJECTS" and project_header_buffer:
+                for header_line in project_header_buffer:
+                    p = doc.add_paragraph()
+                    run = p.add_run(header_line)
+                    run.bold = True
+                    p.paragraph_format.space_after = Pt(0)
+                project_header_buffer = [] # Clear buffer after flushing
+
             current_section = stripped
             # Remove any name or extra paragraph before Profile Summary
             if stripped.upper() == "PROFILE SUMMARY" and len(doc.paragraphs) > 0:
                 last_para = doc.paragraphs[-1]
                 if last_para.text.strip().lower() in ["aravind", "aravind penmatsa"]:
-                    p = doc.paragraphs.pop()
+                    doc.paragraphs.pop()
             p_heading = doc.add_paragraph()
             run_heading = p_heading.add_run(stripped.title())
             run_heading.bold = True
             run_heading.font.size = Pt(14) # Section header size
             run_heading.font.name = "Calibri"
             p_heading.paragraph_format.space_after = Pt(0)
-            if stripped.title() != "Projects":
-                    add_bottom_border(p_heading)
-            in_summary_section = (current_section.upper() == "PROFILE SUMMARY")
+            if stripped.title() != "Projects": 
+                add_bottom_border(p_heading)
+            
             p_heading.paragraph_format.keep_with_next = True
             p_heading.paragraph_format.keep_together = True
-            border_paragraph = doc.paragraphs[-1]
-            border_paragraph.paragraph_format.keep_with_next = True
-            border_paragraph.paragraph_format.keep_together = True
-            section_paragraphs = [p_heading, border_paragraph]
+            
+            section_paragraphs = [p_heading] # Start new section_paragraphs for this heading
             continue
 
         # For plain-text sections, collect lines
         if current_section.upper() in plain_sections and stripped:
             plain_section_lines.append(stripped)
-            # Only flush at the end of the section
-            is_last_line = idx + 1 == len(filtered_lines) or (idx + 1 < len(filtered_lines) and (filtered_lines[idx + 1].strip().isupper() or not filtered_lines[idx + 1].strip()))
+            # Only flush at the end of the section or before a new section
+            is_last_line = idx + 1 == len(filtered_lines) or \
+                             (idx + 1 < len(filtered_lines) and \
+                              (filtered_lines[idx + 1].strip().isupper() and len(filtered_lines[idx + 1].strip().split()) < 6)) # Next is new section
             if is_last_line:
                 p_section = doc.add_paragraph('\n'.join(plain_section_lines), style='SingleSpace')
                 p_section.paragraph_format.space_after = Pt(0)
                 p_section.paragraph_format.space_before = Pt(0)
-                #p_section.paragraph_format.keep_together = True
                 p_section.paragraph_format.line_spacing = 1.0
                 section_paragraphs.append(p_section)
                 # Add a blank line for spacing after the section
                 p_blank = doc.add_paragraph()
                 p_blank.paragraph_format.space_after = Pt(0)
                 p_blank.paragraph_format.space_before = Pt(0)
-                #p_blank.paragraph_format.keep_together = True
                 section_paragraphs.append(p_blank)
-                #for para in section_paragraphs[:-1]:
-                #    para.paragraph_format.keep_with_next = True
-                #section_paragraphs[-1].paragraph_format.keep_with_next = False
                 section_paragraphs = []
                 plain_section_lines = []
             continue
 
-        # For other major sections (bulleted, etc.), keep previous logic
-        # Logic to handle Project section line-by-line based on date duration
+        # Logic for PROJECTS section
         if current_section.upper() == "PROJECTS":
-            # Regex to find a date range like "Nov 2021 to Sep 2022" or "Sep 2022 to Present"
-            date_pattern = r'(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*)\s+\d{4}\s+(?:to|–|-)\s+(?:Present|(?:\w+\s+)?\d{4})'
-            
-            is_header_with_date = re.search(date_pattern, stripped, re.IGNORECASE)
-            is_bullet = stripped.startswith('•')
+            # Determine if the current line is a project header component using temp_stripped
+            is_project_header_component = is_company_line(temp_stripped) or \
+                                          is_title_line(temp_stripped) or \
+                                          is_duration_line(temp_stripped) or \
+                                          ("Remote" in temp_stripped and len(temp_stripped.split()) < 3) # Specific for the "Remote" line
 
-            if is_header_with_date:
-                # If the line has a date, bold it and set a flag to bold the next line (likely the job title)
-                p = doc.add_paragraph()
-                run = p.add_run(stripped)
-                run.bold = True
-                p.paragraph_format.space_after = Pt(0)
-                bold_next_line = True
-            elif bold_next_line and not is_bullet and stripped:
-                # If the flag is set and this isn't a bullet, bold this line and reset the flag
-                p = doc.add_paragraph()
-                run = p.add_run(stripped)
-                run.bold = True
-                p.paragraph_format.space_after = Pt(0)
-                bold_next_line = False
-            elif is_bullet:
-                # If it's a bullet point, add it as a list item and reset the flag
-                p = doc.add_paragraph(stripped, style='List Bullet')
-                p.paragraph_format.space_after = Pt(0)
-                bold_next_line = False
-            elif stripped:
-                # For any other line (like "Responsibilities:"), add it as a normal paragraph
-                p = doc.add_paragraph(stripped)
-                p.paragraph_format.space_after = Pt(0)
-                bold_next_line = False
-            
-            continue
+            # Determine if the current line starts project responsibilities/details
+            # Check for "Responsibilities:", explicit bullets, or action verbs on original stripped line
+            is_responsibilities_heading = stripped.lower().startswith('responsibilities:')
+            is_explicit_bullet = stripped.startswith(('•', '-'))
+            is_action_verb_start = stripped and stripped.split()[0].lower().strip(',.:') in ACTION_VERBS
 
-        # Skip duplicate/irrelevant sections
+            is_project_content_start = is_responsibilities_heading or is_explicit_bullet or is_action_verb_start
+
+            if is_project_header_component and not is_project_content_start:
+                # If it's a header component and not yet content, add to buffer
+                # Store the original stripped line in the buffer
+                project_header_buffer.append(stripped) 
+            elif is_project_content_start or (stripped and not project_header_buffer):
+                # If it's the start of content, or if we are processing content lines and buffer is empty
+                
+                # First, flush any buffered headers as bold
+                if project_header_buffer:
+                    for header_line in project_header_buffer:
+                        p_header = doc.add_paragraph()
+                        run_header = p_header.add_run(header_line)
+                        run_header.bold = True
+                        p_header.paragraph_format.space_after = Pt(0)
+                    project_header_buffer = [] # Clear buffer after flushing
+                
+                # --- START: MODIFIED CODE BLOCK ---
+                if is_responsibilities_heading:
+                    # The "Responsibilities:" heading itself.
+                    p_content = doc.add_paragraph(stripped)
+                elif not stripped.lower().startswith('responsibilities:') and (is_explicit_bullet or is_action_verb_start):
+                    # This handles lines that are identified as bullet points.
+                    # It strips any existing bullet character but does NOT add a new one.
+                    line_content = stripped.lstrip('•- ').strip()
+                    p_content = doc.add_paragraph(line_content)
+                else: 
+                    # Fallback for any other lines of content.
+                    p_content = doc.add_paragraph(stripped)
+                # --- END: MODIFIED CODE BLOCK ---
+
+                p_content.paragraph_format.space_after = Pt(0)
+                p_content.paragraph_format.left_indent = Inches(0.25) 
+            elif not stripped: # Handle empty lines (for spacing)
+                # Only add a blank paragraph if it's not part of an ongoing header block or immediately after a header block
+                if not project_header_buffer: 
+                    p_blank = doc.add_paragraph()
+                    p_blank.paragraph_format.space_after = Pt(0)
+                    p_blank.paragraph_format.space_before = Pt(0)
+            
+            # Any line processed within the PROJECTS section means we continue
+            continue 
+
+        # Skip duplicate/irrelevant sections (This part remains largely the same)
         if any(keyword.lower() in stripped.lower() for keyword in skip_keywords):
             if stripped in seen_sections:
                 continue
             seen_sections.add(stripped)
-            continue  # Skip processing this line further
+            continue  
 
-        # Bullet points
+        # Bullet points (for sections outside PROJECTS) - these lines are not processed if in PROJECTS section
         if stripped.startswith("•") or stripped.startswith("-"):
             p = doc.add_paragraph(stripped, style='List Bullet')
-            p.paragraph_format.space_after = Pt(0)  # Remove space after bullet
+            p.paragraph_format.space_after = Pt(0)  
         elif stripped:
             p = doc.add_paragraph(stripped)
-            p.paragraph_format.space_after = Pt(0)  # Remove space after normal paragraph
+            p.paragraph_format.space_after = Pt(0)  
+
+    # This ensures the header of the VERY LAST project is written correctly if it wasn't flushed before
+    if project_header_buffer:
+        for header_line in project_header_buffer:
+            p = doc.add_paragraph()
+            run = p.add_run(header_line)
+            run.bold = True
+            p.paragraph_format.space_after = Pt(0)
+        project_header_buffer = []
 
     doc.save(output_path)
     return output_path
@@ -510,26 +568,28 @@ def enhance_resume_text(resume_text: str, missing_keywords: set) -> str:
 
     # 2. Insert bullet points at the END of the PROFILE SUMMARY section with normalized spacing
     updated_text = re.sub(
-         r"(PROFILE SUMMARY\s*\n)(.*?)(?=\n[A-Z][A-Za-z ]+\n|\Z)",
-         lambda m: (
-              f"{m.group(1)}"
-              + "\n".join(
-                  [line.strip() for line in m.group(2).strip().splitlines() if line.strip()] +
-                  ([bullet for bullet in real_world_bullets if bullet.strip()] if real_world_bullets else [])
-             )
-    ),
-    resume_text,
-    flags=re.DOTALL | re.IGNORECASE
-)
+        r"(PROFILE SUMMARY\s*\n)(.*?)(?=\n[A-Z][A-Za-z ]+\n|\Z)",
+        lambda m: (
+            f"{m.group(1)}"
+            + "\n".join(
+                [line.strip() for line in m.group(2).strip().splitlines() if line.strip()] +
+                ([f"• {bullet}" for bullet in real_world_bullets if bullet.strip()] if real_world_bullets else [])
+            )
+        ),
+        resume_text,
+        flags=re.DOTALL | re.IGNORECASE
+    )
 
-    # 3. Add enhancement note to CMS section
-    if missing_keywords:
-        updated_text = re.sub(
-            r"(Centers for Medicare & Medicaid Services,.*?Responsibilities:\s+)",
-            lambda m: m.group(1) + "• Integrated tools like: " + ", ".join(sorted(missing_keywords)) + ".\n",
-            updated_text,
-            flags=re.DOTALL | re.IGNORECASE
-        )
+    # 3. Modify or remove enhancement note to CMS section (Removed as per request)
+    # The user specifically asked to "not want to write this point in responsibilities under project 'integrated tools like c'"
+    # So, we will remove this block entirely.
+    # if missing_keywords:
+    #     updated_text = re.sub(
+    #         r"(Centers for Medicare & Medicaid Services,.*?Responsibilities:\s+)",
+    #         lambda m: m.group(1) + "• Integrated tools like: " + ", ".join(sorted(missing_keywords)) + ".\n",
+    #         updated_text,
+    #         flags=re.DOTALL | re.IGNORECASE
+    #     )
 
     return updated_text
 
@@ -572,7 +632,8 @@ async def upload_resume(
 
     download_link = None
     if generate_download.lower() == "yes":
-        enhanced_text = enhance_resume_text(resume_text, set(missing_keywords.split(", ")))
+        # Pass an empty set if you don't want any keywords to be added by enhance_resume_text in the CMS section
+        enhanced_text = enhance_resume_text(resume_text, set()) # Pass empty set to prevent "integrated tools like c"
         output_path = generate_formatted_resume_docx(resume.filename, enhanced_text)
         download_link = f"/download/{os.path.basename(output_path)}"
 
