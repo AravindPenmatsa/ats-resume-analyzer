@@ -746,67 +746,98 @@ ACTION_VERBS = {
 def is_company_line(line: str) -> bool:
     return any(keyword in line.lower() for keyword in ["inc", "llc", "technologies", "solutions", "corp", "company", "services", "labs"])
 
-def is_title_line(line: str) -> bool:
-    return any(title in line.lower() for title in ["sdet", "qa", "test", "tester", "engineer", "analyst", "lead"])
-
 def is_duration_line(line: str) -> bool:
     return bool(re.search(r"\b(20\d{2})\b", line)) and bool(re.search(r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)", line, re.IGNORECASE))
 
+# --- PASTE THIS ENTIRE BLOCK INTO YOUR CODE ---
 
-def parse_projects_content(lines):
+# Helper 1: Detects a line containing a date range, which signals a project header.
+def is_project_header_line(line: str) -> bool:
+    """Robustly identifies a line containing a project header date."""
+    date_pattern = re.search(
+        r'(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}\s*(?:to|–|-)\s*(?:Present|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})',
+        line,
+        re.I
+    )
+    return bool(date_pattern)
+
+# Helper 2: Detects a line containing a job title.
+def is_title_line(line: str) -> bool:
+    """Looks for a line with a job title."""
+    title_pattern = re.search(
+        r'\b(Sr\.|Jr\.)?\s*(QA|SDET|AI Engineer|Automation Engineer|Analyst|Developer|Manager|Lead|Consultant|Architect|Tester|Software Development Engineer in Test)\b',
+        line,
+        re.I
+    )
+    return bool(title_pattern)
+
+# Main Parsing Function: A new, robust, line-by-line parser.
+def parse_projects_content(content_lines: list) -> list:
+    """
+    Parses the project section using a clean, line-by-line state machine approach.
+    """
     projects = []
     current_project = None
-    capture_unstyled_bullets = False
 
-    known_project_headers = [
-        "Centers for Medicare & Medicaid Services, Dallas, TX",
-        "Dish Network, Denver, CO",
-        "United Services Automobile Association (USAA), San Antonio, TX",
-        "Infolob Solutions , Irving , TX"
-    ]
-
-    def finish_project():
-        nonlocal current_project, projects, capture_unstyled_bullets
+    def finish_current_project():
+        nonlocal current_project
         if current_project:
-            if current_project.get("company") or current_project.get("responsibilities"):
-                projects.append(current_project)
+            # Join the collected list items into final strings before appending
+            current_project['company'] = ' | '.join(filter(None, current_project['company']))
+            current_project['title'] = ' | '.join(filter(None, current_project['title']))
+            current_project['duration'] = ' | '.join(filter(None, current_project['duration']))
+            projects.append(current_project)
         current_project = None
-        capture_unstyled_bullets = False
 
-    for line in lines:
-        line = line.strip().replace("\t", "")
-        if not line:
+    # This regex helps find the date within a line to split it from the company name
+    date_pattern_regex = r'((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}\s*(?:to|–|-)\s*(?:Present|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}))'
+
+    for line in content_lines:
+        stripped_line = line.strip()
+        if not stripped_line:
             continue
 
-        if any(line.startswith(h) for h in known_project_headers):
-            finish_project()
+        # A line with a date range is the most reliable start of a new project block.
+        if is_project_header_line(stripped_line):
+            finish_current_project()  # Finish the previous project first.
             current_project = {
-                "company": line,
-                "title": "",
-                "duration": "",
-                "responsibilities": []
+                'company': [], 'title': [], 'duration': [],
+                'responsibilities': [], 'environment': ''
             }
-        elif is_title_line(line):
-            if current_project and not current_project.get("title"):
-                current_project["title"] = line
-        elif is_duration_line(line):
-            if current_project and not current_project.get("duration"):
-                current_project["duration"] = line
-        elif line.lower().startswith("responsibilities"):
-            capture_unstyled_bullets = True
-        elif line.startswith("•") or line.startswith("-"):
-            if current_project:
-                clean_bullet = re.sub(r'^[•\-]+', '', line).strip()
-                current_project["responsibilities"].append(clean_bullet)
-        elif capture_unstyled_bullets:
-            if current_project:
-                current_project["responsibilities"].append(line.strip())
-        else:
-            if current_project and current_project.get("responsibilities"):
-                current_project["responsibilities"][-1] += " " + line
+            # Extract date and company name from this line
+            date_match = re.search(date_pattern_regex, stripped_line, re.I)
+            if date_match:
+                date_str = date_match.group(1)
+                company_str = stripped_line.replace(date_str, '').strip(' ,|')
+                current_project['duration'].append(date_str)
+                if company_str:
+                    current_project['company'].append(company_str)
+            else:
+                 # If for some reason the split fails, add the whole line as company
+                 current_project['company'].append(stripped_line)
+            continue
 
-    finish_project()
+        # If we haven't found the first project yet, keep searching.
+        if not current_project:
+            continue
+
+        # Once inside a project, classify the subsequent lines.
+        if is_title_line(stripped_line):
+            current_project['title'].append(stripped_line)
+        elif stripped_line.lower().startswith('responsibilities:'):
+            continue  # Ignore the literal "Responsibilities:" line
+        elif stripped_line.lower().startswith('environment'):
+            env_text = re.sub(r'^environment\s*:?\s*', '', stripped_line, flags=re.I)
+            current_project['environment'] = env_text
+        else:
+            # Any other non-empty line is a responsibility.
+            current_project['responsibilities'].append(stripped_line.lstrip('•- ').strip())
+
+    finish_current_project()  # Finish the very last project in the buffer.
+
     return projects
+
+# --- PASTE THIS FUNCTION INTO YOUR CODE ---
 
 def generate_resume_html(resume_data: dict) -> str:
     """Generate HTML resume that can be converted to PDF"""
@@ -815,12 +846,17 @@ def generate_resume_html(resume_data: dict) -> str:
     <html>
     <head>
         <style>
-            body { font-family: Arial, sans-serif; margin: 1in; }
-            .header { text-align: center; border-bottom: 2px solid #87CEEB; }
-            .section { margin-top: 20px; }
-            .section-title { font-size: 16px; font-weight: bold; border-bottom: 1px solid #ccc; }
-            .project-header { font-weight: normal; }
-            .bullet { margin-left: 20px; }
+            body { font-family: Arial, sans-serif; margin: 0.8in; line-height: 1.3; font-size: 10pt; }
+            .header { text-align: center; border-bottom: 2px solid #87CEEB; padding-bottom: 5px; margin-bottom: 15px;}
+            .section { margin-top: 15px; }
+            .section-title { font-size: 14pt; font-weight: bold; border-bottom: 1px solid #ccc; padding-bottom: 3px; margin-bottom: 8px;}
+            .project { margin-bottom: 18px; page-break-inside: avoid; }
+            .project-company { font-weight: bold; font-size: 11pt; }
+            .project-title { font-style: italic; }
+            .project-duration { font-weight: normal; margin-bottom: 8px; }
+            .bullet-list { list-style-position: outside; padding-left: 20px; margin: 0; }
+            .bullet-list li { margin-bottom: 5px; }
+            .project-environment { margin-top: 8px; padding-left: 5px; font-size: 9.5pt; font-style: italic; }
         </style>
     </head>
     <body>
@@ -829,28 +865,16 @@ def generate_resume_html(resume_data: dict) -> str:
             <h2>{{ title }}</h2>
             <p>{{ email }} | {{ phone }} | {{ linkedin }} | {{ location }}</p>
         </div>
-        
-        {% for section in sections %}
-        <div class="section">
-            <div class="section-title">{{ section.name }}</div>
-            {% if section.type == 'projects' %}
-                {% for project in section.content %}
-                <div class="project-header">{{ project.company }}, {{ project.location }} | {{ project.title }} | {{ project.duration }}</div>
-                {% for bullet in project.responsibilities %}
-                <div class="bullet">• {{ bullet }}</div>
-                {% endfor %}
-                {% endfor %}
-            {% else %}
-                {% for item in section.content %}
-                <div>{{ item }}</div>
-                {% endfor %}
-            {% endif %}
-        </div>
-        {% endfor %}
-    </body>
-    </html>
+        {% for section in sections %}<div class="section"><div class="section-title">{{ section.name }}</div>
+        {% if section.type == 'projects' %}{% for project in section.content %}<div class="project">
+        <div class="project-company">{{ project.company }}</div>
+        {% if project.title %}<div class="project-title">{{ project.title }}</div>{% endif %}
+        <div class="project-duration">{{ project.duration }}</div>
+        {% if project.responsibilities %}<ul class="bullet-list">{% for bullet in project.responsibilities %}<li>{{ bullet }}</li>{% endfor %}</ul>{% endif %}
+        {% if project.environment %}<div class="project-environment"><b>Environment:</b> {{ project.environment }}</div>{% endif %}
+        </div>{% endfor %}{% else %}{% for item in section.content %}<p>{{ item }}</p>{% endfor %}{% endif %}
+        </div>{% endfor %}</body></html>
     """
-    
     from jinja2 import Template
     return Template(template).render(**resume_data)
 
