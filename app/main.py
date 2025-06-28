@@ -863,6 +863,10 @@ def generate_formatted_resume_pdf(filename: str, enhanced_text: str) -> str:
         
         # Import weasyprint inside try block to handle missing dependencies
         try:
+            # Set library path for macOS
+            import os
+            os.environ['DYLD_LIBRARY_PATH'] = '/opt/homebrew/lib:' + os.environ.get('DYLD_LIBRARY_PATH', '')
+            
             from weasyprint import HTML
             output_path = os.path.join("generated_resumes", f"{os.path.splitext(filename)[0]}_formatted.pdf")
             HTML(string=html_content).write_pdf(output_path)
