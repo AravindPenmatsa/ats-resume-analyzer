@@ -925,43 +925,61 @@ def is_company_line(line: str) -> bool:
 
     return False
 
+# You can keep your existing `is_date_line` function.
+
 def parse_projects_content(content_lines: list) -> list:
     """
-    Final, polished parser using the date-anchor method.
-    This version adds minor clean-up to remove artifacts from the final output.
+    Final, universal parser that correctly handles multiple header formats
+    and removes all unreliable checks to prevent data loss.
     """
-    app_logger.info("Starting to parse project content with final DATE-ANCHORED parser...")
+    app_logger.info("Starting to parse project content with new universal parser...")
     projects = []
     project_indices = []
 
+    # First pass: Find all date lines, which are our reliable anchors.
+    # The faulty length check has been removed.
     for i, line in enumerate(content_lines):
         if is_date_line(line):
             project_indices.append(i)
 
     if not project_indices:
-        app_logger.warning("No project date lines found. Cannot parse projects.")
         return []
 
+    # Second pass: Build projects based on the anchor locations.
     for i, date_line_index in enumerate(project_indices):
-        start_of_header_index = max(0, date_line_index - 2)
-        
-        # FIX 1: Strip leading bullets from header lines to fix titles.
-        header_lines = [
-            content_lines[j].strip().lstrip('•- ').strip() 
-            for j in range(start_of_header_index, date_line_index + 1)
-        ]
-
+        current_date_line = content_lines[date_line_index].strip()
+        header_lines = []
         start_of_resp_index = date_line_index + 1
 
+        # This logic now handles both header formats in your resume.
+        if len(current_date_line.split()) < 6:
+            # Format 1: The date is on its own line. The header is the two lines BEFORE it.
+            start_of_header_index = max(0, date_line_index - 2)
+            header_lines = [content_lines[j].strip() for j in range(start_of_header_index, date_line_index + 1)]
+        else:
+            # Format 2: The date is on the same line as the company. The header is this line + the next line (title).
+            header_lines.append(current_date_line)
+            if date_line_index + 1 < len(content_lines):
+                # Check if the next line is another project before adding it as the title.
+                if not is_date_line(content_lines[date_line_index + 1]):
+                    header_lines.append(content_lines[date_line_index + 1].strip())
+                    start_of_resp_index += 1
+
+        # Clean any leading bullets from the collected header lines.
+        cleaned_header = [h.lstrip('•- ').strip() for h in header_lines if h]
+
+        # Determine where the responsibilities for this project end.
         if i + 1 < len(project_indices):
-            next_date_line_index = project_indices[i+1]
-            end_of_resp_index = max(0, next_date_line_index - 2)
+            end_of_resp_index = project_indices[i+1]
+            next_date_line = content_lines[end_of_resp_index].strip()
+            # Adjust the boundary if the next project's header is multi-line.
+            if len(next_date_line.split()) < 6:
+                end_of_resp_index = max(0, end_of_resp_index - 2)
         else:
             end_of_resp_index = len(content_lines)
 
         responsibility_lines = [
             line.strip().lstrip('•- ').strip()
-            # FIX 2: Added check to exclude the "Responsibilities:" line.
             for line in content_lines[start_of_resp_index:end_of_resp_index]
             if line.strip() and not line.strip().lower().startswith('environment:') and not line.strip().lower().startswith('responsibilities:')
         ]
@@ -973,7 +991,7 @@ def parse_projects_content(content_lines: list) -> list:
                  break
 
         projects.append({
-            'header': [line for line in header_lines if line],
+            'header': cleaned_header,
             'responsibilities': [line for line in responsibility_lines if line],
             'environment': environment_line
         })
