@@ -1002,8 +1002,9 @@ def parse_projects_content(content_lines: list) -> list:
 # --- PASTE THIS FUNCTION INTO YOUR CODE ---
 
 def generate_resume_html(resume_data: dict) -> str:
-    """Generate HTML resume that can be converted to PDF with corrected project formatting."""
-    # This template has updated CSS and a new structure for rendering projects
+    """
+    Generate HTML resume with the final corrected CSS to remove all unwanted spacing.
+    """
     template = """
     <!DOCTYPE html>
     <html>
@@ -1017,15 +1018,16 @@ def generate_resume_html(resume_data: dict) -> str:
             .section { margin-top: 15px; }
             .section-title { font-size: 14pt; font-weight: bold; color: #4F81BD; border-bottom: 1px solid #B0C4DE; padding-bottom: 3px; margin-bottom: 8px;}
             
-            /* --- Styles for the newly structured Project section --- */
-            .project { margin-bottom: 18px; page-break-inside: avoid; }
-            .project-header { margin-bottom: 8px; }
-            .project-header-line { font-weight: normal; line-height: 1.3; }
-            .project-header-line:first-child { font-weight: bold; font-size: 12pt; } /* Makes the company name bold */
+            /* --- FIX: The unnecessary 'margin-top' property has been removed from this rule. --- */
+            .project { margin-bottom: 18px; /* page-break-inside: avoid; */}
+            
+            .project-header { margin-top: 0; padding-top: 0; margin-bottom: 8px; }
+            .project-header-line { margin: 0; padding: 0; font-weight: normal; line-height: 1.3; }
+            .project-header-line:first-child { margin-top: 0; padding-top: 0; font-weight: bold; font-size: 12pt; }
             .project-title-and-date { font-style: italic; }
 
             .bullet-list { list-style-position: outside; padding-left: 22px; margin: 0; }
-            .bullet-list li { margin-bottom: 6px; } /* Controls space between bullet points */
+            .bullet-list li { margin-bottom: 6px; }
             .project-environment { margin-top: 8px; padding: 4px; background-color: #F2F2F2; font-size: 9pt; font-style: italic; }
             .project-environment b { font-style: normal; }
         </style>
@@ -1041,16 +1043,17 @@ def generate_resume_html(resume_data: dict) -> str:
             <div class="section-title">{{ section.name }}</div>
             
             {% if section.type == 'projects' %}
+                
                 {% for project in section.content %}
                 <div class="project">
                     <div class="project-header">
-                        {% for line in project.header %}
-                            {% if loop.index == 1 %}
+                        {%- for line in project.header %}
+                            {%- if loop.index == 1 %}
                                 <div class="project-header-line">{{ line }}</div>
-                            {% else %}
+                            {%- else %}
                                 <div class="project-header-line project-title-and-date">{{ line }}</div>
-                            {% endif %}
-                        {% endfor %}
+                            {%- endif %}
+                        {%- endfor %}
                     </div>
 
                     {% if project.responsibilities %}
