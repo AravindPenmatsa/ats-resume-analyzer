@@ -144,6 +144,24 @@ ACTION_VERBS = {
         "built", "performed", "participated", "verified"
 }
 
+def add_header_section(resume_text):
+    name_pattern = re.search(r'(?i)(?:Name[:\-]?)?\s*([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)', resume_text)
+    email_pattern = re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', resume_text)
+    phone_pattern = re.search(r'(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})', resume_text)
+    linkedin_pattern = re.search(r'https?://(www\.)?linkedin\.com/in/[^\s]+', resume_text)
+    location_pattern = re.search(r'(Dallas|Austin|Houston|TX|New York|NY|CA|San Francisco|Chicago)', resume_text)
+    title_pattern = re.search(r'(SDET|QA Engineer|Software Engineer in Test|Automation Engineer)', resume_text, re.IGNORECASE)
+
+    return {
+        "name": name_pattern.group(1) if name_pattern else "Candidate Name",
+        "title": title_pattern.group(1).upper() if title_pattern else "TITLE",
+        "subtitle": "",
+        "email": email_pattern.group(0) if email_pattern else "",
+        "phone": phone_pattern.group(0) if phone_pattern else "",
+        "linkedin": linkedin_pattern.group(0) if linkedin_pattern else "",
+        "location": location_pattern.group(0) if location_pattern else ""
+    }
+
 # Function to extract plain text from uploaded resume file
 def extract_text_from_file(upload_file: UploadFile) -> str:
     if not upload_file.filename:
@@ -351,36 +369,8 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str) -> str:
         p.paragraph_format.space_after = Pt(0)
         p.paragraph_format.space_before = Pt(0)
 
-    # ✅ Add contact header (No change)
-    def add_header_section(doc):
-        name = "Aravind Penmatsa"
-        title = "SDET"
-        subtitle = "(JAVA, Selenium, Protractor, Web Services, )"
-        email = "aravind.raju541@gmail.com"
-        phone = "614-940-9680"
-        linkedin = "https://www.linkedin.com/in/aravind-penmatsa/"
-        location = "Dallas,TX"
-
-        def add_centered_text(text, bold=False, size=11):
-            p = doc.add_paragraph()
-            p.alignment = 1  # Centered
-            run = p.add_run(text)
-            run.bold = bold
-            run.font.size = Pt(size)
-            p.paragraph_format.space_after = Pt(0)  # Tight spacing
-            return p
-
-        add_centered_text(name, bold=True, size=16)
-        add_centered_text(title, bold=True, size=12)
-        add_centered_text(subtitle)
-        add_centered_text(email)
-        add_centered_text(phone)
-        add_centered_text(linkedin)
-        add_centered_text(location)
-        doc.add_paragraph()      # spacer
-
     # ✅ Insert the header section
-    add_header_section(doc)
+    add_header_section(enhanced_text)
 
     # ✅ Apply base styles
     style = doc.styles['Normal']
@@ -692,6 +682,18 @@ async def upload_resume(
     logging.info(f"POST /upload - Received new request. Resume: '{resume.filename}', Generate Download: '{generate_download}'")
     try:
         resume_text = extract_text_from_file(resume)
+        user_info = add_header_section(resume_text)
+
+        resume_data =   {
+                         "name": user_info['name'],
+                         "title": user_info['title'],
+                         "subtitle": user_info['subtitle'],
+                         "email": user_info['email'],
+                         "phone": user_info['phone'],
+                         "linkedin": user_info['linkedin'],
+                         "location": user_info['location'],
+                         "sections": []
+                        }
         jd_text = jobdesc_text
 
         if len(resume_text.strip()) < 30 or len(jd_text.strip()) < 30:
@@ -1011,7 +1013,11 @@ def generate_resume_html(resume_data: dict) -> str:
     <head>
         <style>
             body { font-family: Calibri, Arial, sans-serif; margin: 0.7in; line-height: 1.2; font-size: 11pt; }
-            .header { text-align: center; border-bottom: 2px solid #4F81BD; padding-bottom: 5px; margin-bottom: 15px;}
+            .header { <p>
+                         {{ email }}{% if email and phone %} | {% endif %}{{ phone }}
+                         {% if linkedin %} | <a href="{{ linkedin }}">{{ linkedin }}</a>{% endif %}
+                         {% if location %} | {{ location }}{% endif %}
+                    </p> }
             .header h1 { margin: 0; font-size: 20pt; }
             .header h2 { margin: 0; font-size: 14pt; font-weight: normal; }
             .header p { margin: 2px 0; font-size: 10pt; }
