@@ -136,32 +136,142 @@ SOFT_KEYWORDS = {"communication", "leadership", "teamwork", "collaboration", "ad
 
 # --- ADD THIS SET DEFINITION ---
 ACTION_VERBS = {
-        "designed", "developed", "solved", "continuously", "conducted", "executed", "engaged", 
-        "documented", "actively", "managed", "validated", "performed", "applied", "explored", 
-        "gained", "contributed", "worked", "utilized", "configured", "implemented", "automated", 
-        "created", "monitored", "used", "collaborated", "logged", "integrated", "tested", 
-        "prepared", "good", "strong", "use", "demonstrated", "simulated", "analyzed", "tuned",
-        "built", "performed", "participated", "verified"
+    "designed", "developed", "solved", "continuously", "conducted", "executed", "engaged", 
+    "documented", "actively", "managed", "validated", "performed", "applied", "explored", 
+    "gained", "contributed", "worked", "utilized", "configured", "implemented", "automated", 
+    "created", "monitored", "used", "collaborated", "logged", "integrated", "tested", 
+    "prepared", "good", "strong", "use", "demonstrated", "simulated", "analyzed", "tuned",
+    "built", "participated", "coordinated", "involved", "modernized", "dealt", "responsible", 
+    "reporting", "wrote", "extensively", "prepared", "expertise",
+    "proficient", "experienced", "knowledge", "accustomed", "hands", "strong", "well",
+    "education" # Added for education parsing if it uses bullet-like structure
 }
 
+# --- NEW/REFINED HELPERS FOR EXPERIENCE PARSING ---
+def is_likely_company_location_date(line: str) -> bool:
+    line = line.strip()
+    
+    date_range_pattern = r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}\s*(?:to|–|-)\s*(?:Present|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})\b'
+    if not re.search(date_range_pattern, line, re.IGNORECASE):
+        return False
+        
+    company_name_pattern = r'^[A-Z][a-zA-Z0-9\s,&.-]+(?:Inc|LLC|Corp|Ltd|Group|Solutions|Technologies)?\b'
+    if not re.search(company_name_pattern, line):
+        return False
+
+    if re.search(r'^\s*Role:\s*|^\s*Responsibilities:\s*', line, re.IGNORECASE):
+        return False
+    
+    return True
+
+def is_experience_company_line(line: str) -> bool:
+    """Detects lines containing a Company, Location, and Date range."""
+    # Pattern: Optional (Company Name, ) Optional (City, State) Month Year to Month Year/Present
+    # This is a complex pattern to capture common variations.
+    # It prioritizes matching a company-like name, then a location, then a date range.
+    
+    # 1. Look for a date range (most reliable indicator of job entry)
+    date_range_pattern = r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}\s*(?:to|–|-)\s*(?:Present|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})\b'
+    if not re.search(date_range_pattern, line, re.IGNORECASE):
+        return False
+        
+    # 2. Look for a company name (starts with Capital, might have Inc/LLC etc) followed by comma or space
+    company_name_pattern = r'^[A-Z][a-zA-Z0-9\s,&.-]+(?:Inc|LLC|Corp|Ltd|Group|Solutions|Technologies)?\b'
+    if not re.search(company_name_pattern, line):
+        return False # Must start with something that looks like a company name
+
+    # 3. Look for a location (City, State/Country) or just a city/state
+    # This is less strict to allow for variations
+    location_pattern = r'\b(?:Dallas|Austin|Houston|TX|New York|NY|CA|San Francisco|Chicago|Hyderabad|India|Remote|USA)\b'
+    if not re.search(location_pattern, line, re.IGNORECASE) and ',' not in line:
+        # If no specific city/state is found, at least a comma is expected for "Company, Location"
+        # However, for "Company Dates" directly, we might not have a comma.
+        # This part requires a balance. Let's rely more on the date pattern and the general structure.
+        pass # Not a strict requirement for every line, as location can be implied or missing.
+
+    # Exclude lines that are clearly just role or responsibilities lines despite having dates
+    if re.search(r'^\s*Role:\s*|^\s*Responsibilities:\s*', line, re.IGNORECASE):
+        return False
+    
+    return True
+
+def is_experience_role_line(line: str) -> bool:
+    return bool(re.search(r'^\s*Role:\s*([A-Za-z0-9\s,/\-]+(?:engineer|analyst|developer|manager|contractor|fulltime|sdet|qa|specialist)\b)?', line, re.IGNORECASE))
+
+def is_responsibility_heading(line: str) -> bool:
+    return bool(re.search(r'^\s*(?:Responsibilities|Environment):\s*', line, re.IGNORECASE))
+
+# --- NEW FUNCTION: process_general_bullets ---
+def process_general_bullets(content_lines: list) -> list:
+    """
+    Parses content for sections like Professional Summary and Achievements,
+    returning a simple list of bullet strings.
+    """
+    processed_bullets = []
+    current_bullet_segment = []
+    
+    # Regex for new bullet point detection for general text.
+    # It's similar to the one in parse_experience_section but might be less strict
+    # if summaries can start with non-verbs.
+    summary_bullet_start_regex = re.compile(
+        r'^(?:[•\-\*]\s*|' + # Explicit bullet characters
+        r'(?:\b(?:' + '|'.join(re.escape(s) for s in ACTION_VERBS) + r')\b(?!\s*:)|' + # Action verb not followed by colon
+        r'\b(?:Around|Experience|Proficient|Extensive|Good|Strong|Well|Accustomed|Involved|Knowledge|Hands)\b))', # Common summary starters
+        re.IGNORECASE
+    )
+
+    for line in content_lines:
+        stripped_line = line.strip()
+        if not stripped_line:
+            if current_bullet_segment: # If an empty line, finalize current bullet
+                processed_bullets.append(" ".join(current_bullet_segment).strip())
+                current_bullet_segment = []
+            continue
+
+        # Check if this line should start a *new* bullet point
+        is_new_bullet = False
+        if summary_bullet_start_regex.search(stripped_line):
+            is_new_bullet = True
+        elif len(current_bullet_segment) > 0 and current_bullet_segment[-1].strip().endswith(('.', '!', '?')):
+            # If the previous line ended a sentence, assume this is a new bullet
+            is_new_bullet = True
+
+        if is_new_bullet and current_bullet_segment:
+            processed_bullets.append(" ".join(current_bullet_segment).strip())
+            current_bullet_segment = [stripped_line]
+        else:
+            current_bullet_segment.append(stripped_line)
+            
+    if current_bullet_segment: # Add the last collected bullet
+        processed_bullets.append(" ".join(current_bullet_segment).strip())
+            
+    # Final filtering: remove any empty or very short items that don't make sense as bullets
+    return [bullet for bullet in processed_bullets if bullet and len(bullet.split()) > 3]
+
+
 def add_header_section(resume_text):
-    name_pattern = re.search(r'(?i)(?:Name[:\-]?)?\s*([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)', resume_text)
-    email_pattern = re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', resume_text)
-    phone_pattern = re.search(r'(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})', resume_text)
-    linkedin_pattern = re.search(r'https?://(www\.)?linkedin\.com/in/[^\s]+', resume_text)
-    location_pattern = re.search(r'(Dallas|Austin|Houston|TX|New York|NY|CA|San Francisco|Chicago)', resume_text)
-    title_pattern = re.search(r'(SDET|QA Engineer|Software Engineer in Test|Automation Engineer)', resume_text, re.IGNORECASE)
+    # Limit the search to the first N characters (e.g., 500) to ensure it only captures header info.
+    # This prevents picking up titles/locations from professional summaries or experience sections.
+    header_search_area = resume_text[:70] 
+
+    name_pattern = re.search(r'(?i)(?:Name[:\-]?)?\s*([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)', header_search_area)
+    email_pattern = re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', header_search_area)
+    phone_pattern = re.search(r'(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})', header_search_area)
+    linkedin_pattern = re.search(r'https?://(www\.)?linkedin\.com/in/[^\s]+', header_search_area)
+    
+    # Apply location and title patterns only within the restricted search area
+    location_pattern = re.search(r'(Dallas|Austin|Houston|TX|New York|NY|CA|San Francisco|Chicago)', header_search_area)
+    title_pattern = re.search(r'(SDET|QA Engineer|Software Engineer in Test|Automation Engineer)', header_search_area, re.IGNORECASE)
 
     return {
         "name": name_pattern.group(1) if name_pattern else "Candidate Name",
-        "title": title_pattern.group(1).upper() if title_pattern else "TITLE",
+        "title": title_pattern.group(1).upper() if title_pattern else "",
         "subtitle": "",
         "email": email_pattern.group(0) if email_pattern else "",
         "phone": phone_pattern.group(0) if phone_pattern else "",
         "linkedin": linkedin_pattern.group(0) if linkedin_pattern else "",
         "location": location_pattern.group(0) if location_pattern else ""
     }
-
 # Function to extract plain text from uploaded resume file
 def extract_text_from_file(upload_file: UploadFile) -> str:
     if not upload_file.filename:
@@ -407,7 +517,7 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str) -> str:
     section_paragraphs = []
     # Track lines for plain-text sections
     plain_section_lines = []
-    plain_sections = ["EDUCATION", "TECHNICAL SKILLS", "CERTIFICATIONS"]
+    plain_sections = ["EDUCATION","EDUCATION QUALIFICATIONS", "TECHNICAL SKILLS", "CERTIFICATIONS"]
 
     if 'SingleSpace' not in [s.name for s in doc.styles]:
         single_space_style = doc.styles.add_style('SingleSpace', WD_STYLE_TYPE.PARAGRAPH)
@@ -723,7 +833,7 @@ async def upload_resume(
         if generate_download.lower() == "yes":
             logging.info("Download requested. Generating enhanced resume file.")
             enhanced_text = enhance_resume_text(resume_text, set()) 
-            output_path = generate_formatted_resume_pdf(filename, enhanced_text)
+            output_path = generate_formatted_resume_pdf(filename, enhanced_text, user_info)
             download_link = f"/download/{os.path.basename(output_path)}"
             logging.info(f"Download link created: {download_link}")
 
@@ -761,88 +871,252 @@ async def root():
     logging.info("GET / - Redirecting to /upload")
     return HTMLResponse('<script>window.location.replace("/upload")</script>')
 
-def parse_resume_to_structure(enhanced_text: str) -> dict:
-    """
-    Parse resume text into structured data for the HTML template. This version
-    uses a predefined list of sections for robust detection.
-    """
+# --- MODIFIED parse_resume_to_structure function ---
+def parse_resume_to_structure(enhanced_text: str, user_info: dict) -> dict:
     resume_data = {
-        "name": "Aravind Penmatsa",
-        "title": "SDET",
-        "email": "aravind.raju541@gmail.com",
-        "phone": "614-940-9680",
-        "linkedin": "https://www.linkedin.com/in/aravind-penmatsa/",
-        "location": "Dallas,TX",
+        "name": user_info.get("name", "Candidate Name"),
+        "title": user_info.get("title", ""),
+        "email": user_info.get("email", ""),
+        "phone": user_info.get("phone", ""),
+        "linkedin": user_info.get("linkedin", ""),
+        "location": user_info.get("location", ""),
         "sections": []
     }
-    
-    # --- START OF FIX ---
-    # Define a specific list of valid, top-level section headers.
+
     VALID_SECTIONS = [
-        "PROFILE SUMMARY",
-        "PROFESSIONAL EXPERIENCE",
-        "PROJECTS",
-        "EDUCATION",
-        "TECHNICAL SKILLS",
-        "CERTIFICATIONS",
-        "EXPERTISE IN"
+        "PROFILE SUMMARY", "PROFESSIONAL SUMMARY", "PROFESSIONAL EXPERIENCE", "PROJECTS",
+        "EDUCATION", "TECHNICAL SKILLS", "CERTIFICATIONS", "ACHIEVEMENTS", "EXPERTISE IN"
     ]
     
     sections = {}
     current_section = None
     current_content = []
     
-    for line in enhanced_text.split('\n'):
+    lines = enhanced_text.split('\n')
+    for idx, line in enumerate(lines):
         stripped_line = line.strip()
         if not stripped_line:
+            if current_section and current_section not in ["PROJECTS", "PROFESSIONAL EXPERIENCE"]:
+                if current_content and current_content[-1] != '\n':
+                    current_content.append('\n')
             continue
-            
-        # Replace the old, fragile check with a robust one against our list.
-        if stripped_line.upper() in VALID_SECTIONS:
+        
+        normalized_stripped_line = re.sub(r'[.:,;!?-]+$', '', stripped_line).strip()
+        
+        if normalized_stripped_line.upper() in VALID_SECTIONS:
             if current_section and current_content:
                 sections[current_section] = current_content.copy()
-            current_section = stripped_line.upper()
+            
+            current_section = normalized_stripped_line.upper()
             current_content = []
+            logging.debug(f"Detected section: {current_section}")
         else:
             if current_section:
-                current_content.append(line) # Append the original line to preserve indentation
+                current_content.append(line)
     
-    # Save the last section's content
     if current_section and current_content:
         sections[current_section] = current_content.copy()
     
-    # --- END OF FIX ---
+    logging.debug(f"Parsed sections: {sections.keys()}")
 
-    # The rest of the function remains the same, parsing the structured data.
     desired_sections = [
-        "PROFILE SUMMARY",
+        "PROFESSIONAL SUMMARY", 
+        "PROFILE SUMMARY",      
         "EDUCATION", 
         "TECHNICAL SKILLS",
         "CERTIFICATIONS",
-        "PROFESSIONAL EXPERIENCE",
+        "ACHIEVEMENTS",         
+        "PROFESSIONAL EXPERIENCE", 
         "PROJECTS"
     ]
     
     for section_name in desired_sections:
-        # Use .get() to avoid errors if a section is not found in the resume
         section_content = sections.get(section_name.upper())
         if section_content:
-            if section_name == 'PROJECTS':
+            if section_name.upper() == 'PROFESSIONAL EXPERIENCE':
+                processed_content = parse_experience_section(section_content) # Use specialized parser
+                resume_data["sections"].append({
+                    "name": section_name.title(),
+                    "type": "professional_experience", # Specific type for rendering
+                    "content": processed_content # This will be list of dicts
+                })
+            elif section_name.upper() == 'PROFESSIONAL SUMMARY' or \
+                 section_name.upper() == 'ACHIEVEMENTS':
+                # Use the simpler general bullet parser for these
+                processed_content = process_general_bullets(section_content) # <--- NEW FUNCTION CALL
+                resume_data["sections"].append({
+                    "name": section_name.title(),
+                    "type": "bullets", # Render as regular bullet list
+                    "content": processed_content
+                })
+            elif section_name == 'PROJECTS':
                 projects = parse_projects_content(section_content)
                 resume_data["sections"].append({
                     "name": section_name.title(),
                     "type": "projects",
                     "content": projects
                 })
-            else:
+            else: # For Education, Technical Skills, Certifications
                 resume_data["sections"].append({
                     "name": section_name.title(),
-                    "type": "plain",
-                    "content": section_content
+                    "type": "plain_text_block",
+                    "content": "\n".join([l.strip() for l in section_content if l.strip()])
                 })
     
     return resume_data
+# --- END MODIFIED parse_resume_to_structure function ---
 
+def process_experience_bullets(content_lines: list) -> list:
+    """
+    Parses professional experience content, separating company/role headers from bullet points.
+    Returns a list of dictionaries, each representing an experience entry.
+    """
+    experience_entries = []
+    current_entry = {
+        'header_lines': [],
+        'bullets': [],
+        'environment': '' # Assuming environment might appear here too
+    }
+    
+    # Combined list of common action verbs for bullet splitting
+    bullet_starters = ACTION_VERBS.union([
+        "participated", "coordinated", "working", "developed", "designed", "implemented",
+        "used", "wrote", "extensively", "prepared", "expertise", "proficient", "experienced",
+        "knowledge", "accustomed", "involved", "hands on", "strong sense", "responsible", "reporting",
+        "updated", "automated", "created"
+    ])
+
+    # Regex to detect lines that start with an action verb/starter keyword (case-insensitive, at word boundary)
+    # or common bullet characters.
+    bullet_start_regex = re.compile(
+        r'^(?:' + '|'.join(re.escape(s) for s in ['•', '-', '*']) + r'\s*|' +
+        r'\b(?:' + '|'.join(re.escape(s) for s in bullet_starters) + r')\b)',
+        re.IGNORECASE
+    )
+
+    for line_num, line in enumerate(content_lines):
+        stripped_line = line.strip()
+        if not stripped_line:
+            continue # Skip empty lines
+
+        # Check for start of a new experience entry
+        # This is typically signaled by a line with Company, Location, Dates
+        if is_experience_company_line(stripped_line):
+            if current_entry['header_lines'] or current_entry['bullets']: # If building a previous entry, finalize it
+                experience_entries.append(current_entry)
+                current_entry = {'header_lines': [], 'bullets': [], 'environment': ''} # Start new entry
+            current_entry['header_lines'].append(stripped_line) # Add the company/date line to header
+            continue # Move to next line
+
+        # Check for role line
+        if is_experience_role_line(stripped_line):
+            current_entry['header_lines'].append(stripped_line) # Add role line to header
+            continue # Move to next line
+
+        # Check for environment line (optional, if you want to pull it out separately)
+        if stripped_line.lower().startswith('environment:'):
+            current_entry['environment'] = re.sub(r'^environment\s*:\s*', '', stripped_line, flags=re.I).strip()
+            continue # Move to next line
+
+        # Check for the start of a new bullet point within the current responsibilities
+        # This is where the core logic for splitting paragraphs into bullets goes.
+        # We need to consider that docx2txt often flattens bullets onto fewer lines.
+        is_new_bullet_item = False
+        if bullet_start_regex.search(stripped_line):
+            is_new_bullet_item = True
+        
+        # Heuristic for multi-line bullets flattened by docx2txt:
+        # If the current_entry['bullets'] is empty, and this is the first content line, it's a bullet.
+        # If the line starts with a capitalized word, and the previous line didn't end with punctuation
+        # (might indicate a sentence split by docx2txt)
+        if not is_new_bullet_item and current_entry['bullets']:
+            # Check if this line is clearly a continuation of the previous bullet, not a new one
+            last_bullet_line = current_entry['bullets'][-1] if current_entry['bullets'] else ""
+            if last_bullet_line and not last_bullet_line.strip().endswith(('.', '!', '?')):
+                 # If the last line didn't end a sentence, and this line is not a new bullet start,
+                 # it's likely a continuation. Concatenate.
+                 current_entry['bullets'][-1] += " " + stripped_line
+                 continue
+            # Else, if it didn't end a sentence, but this line IS a new bullet starter, then it's a new bullet.
+        
+        # If we reach here, it's either a confirmed new bullet, or the first line of content.
+        # Clean potential leading bullet characters from docx2txt before adding.
+        clean_bullet = re.sub(r'^[•\-\*]\s*', '', stripped_line).strip()
+        if clean_bullet:
+            current_entry['bullets'].append(clean_bullet)
+
+    if current_entry['header_lines'] or current_entry['bullets']: # Add the last collected entry
+        experience_entries.append(current_entry)
+            
+    # Final filtering/cleaning for robustness (optional, based on desired output)
+    clean_entries = []
+    for entry in experience_entries:
+        if entry['header_lines'] or [b for b in entry['bullets'] if b]: # Ensure entry has content
+            # Clean up the bullets one more time: join multi-line bullets if they were split mid-sentence
+            final_bullets_for_entry = []
+            temp_bullet = []
+            for bullet_line in entry['bullets']:
+                if bullet_start_regex.search(bullet_line) and temp_bullet:
+                    final_bullets_for_entry.append(" ".join(temp_bullet).strip())
+                    temp_bullet = [bullet_line]
+                else:
+                    temp_bullet.append(bullet_line)
+            if temp_bullet:
+                final_bullets_for_entry.append(" ".join(temp_bullet).strip())
+
+            entry['bullets'] = [b for b in final_bullets_for_entry if b] # Filter empty final bullets
+            clean_entries.append(entry)
+
+    return clean_entries
+# --- NEW FUNCTION: process_professional_experience_content ---
+def process_professional_experience_content(content_lines: list) -> list:
+    """
+    Attempts to re-introduce bullet points for Professional Experience content.
+    It looks for lines starting with an action verb or appearing to be a new logical point.
+    """
+    processed_bullets = []
+    current_bullet = []
+    
+    # Define keywords that typically start a new bullet point within professional experience
+    # This includes common action verbs and phrases.
+    bullet_start_keywords = set(ACTION_VERBS) # Re-use your existing ACTION_VERBS set
+    bullet_start_keywords.update([
+        "participated", "coordinated", "working", "developed", "designed", "implemented",
+        "used", "wrote", "extensively", "prepared", "expertise", "role", "responsibilities"
+    ])
+
+    for line in content_lines:
+        stripped_line = line.strip()
+        if not stripped_line:
+            if current_bullet: # If there was a bullet being built, close it
+                processed_bullets.append(" ".join(current_bullet).strip())
+                current_bullet = []
+            continue
+
+        # Check if this line looks like the start of a new bullet point
+        # Heuristics: Starts with a capitalized word (likely verb), or very short lines
+        # or contains explicit bullet characters if they somehow survived extraction
+        is_new_bullet_start = False
+        first_word = stripped_line.split(' ')[0].strip('.,').lower()
+        if first_word in bullet_start_keywords or stripped_line.startswith(('•', '-', '*')):
+            is_new_bullet_start = True
+        elif stripped_line and stripped_line[0].isupper() and len(stripped_line.split()) < 5: # Short capitalized phrase
+            is_new_bullet_start = True
+        elif re.search(r'^\s*\w+\s*:', stripped_line): # "Role:", "Responsibilities:"
+            is_new_bullet_start = True
+
+        if is_new_bullet_start and current_bullet:
+            processed_bullets.append(" ".join(current_bullet).strip())
+            current_bullet = [stripped_line]
+        else:
+            current_bullet.append(stripped_line)
+            
+    if current_bullet: # Add the last collected bullet
+        processed_bullets.append(" ".join(current_bullet).strip())
+            
+    # Filter out empty or extremely short/irrelevant lines that might have been processed
+    return [bullet for bullet in processed_bullets if bullet and len(bullet.split()) > 2]
+# --- END NEW FUNCTION ---
 ACTION_VERBS = {
     "developed", "implemented", "designed", "created", "led", "automated", "executed", "optimized", 
     "tested", "analyzed", "built", "streamlined", "coordinated", "improved", "monitored", "reduced",
@@ -927,19 +1201,112 @@ def is_company_line(line: str) -> bool:
 
     return False
 
+# --- RESTRUCTURED parse_experience_section FUNCTION (more robust state machine) ---
+def parse_experience_section(content_lines: list) -> list:
+    """
+    Parses professional experience content into structured entries,
+    distinguishing boldable headers (Company, Dates, Role) from bullet points.
+    Strictly expects company/role lines.
+    """
+    experience_entries = []
+    current_entry = None # Will be a dict for the current job experience
+    
+    bullet_start_detection_regex = re.compile(
+        r'^(?:[•\-\*]\s*|' + # Explicit bullet characters
+        r'\b(?:' + '|'.join(re.escape(s) for s in ACTION_VERBS) + r')\b(?!\s*:)|' + # Action verb not followed by colon
+        r'\b(?:Role|Responsibilities|Environment):\s*)', # Specific headers like "Role:" (should be caught and processed)
+        re.IGNORECASE
+    )
+
+    for line_num, line in enumerate(content_lines):
+        stripped_line = line.strip()
+        if not stripped_line:
+            continue
+
+        # Step 1: Detect start of a NEW Experience Entry (Company, Location, Date line)
+        if is_likely_company_location_date(stripped_line):
+            if current_entry: # Save previous entry if exists
+                experience_entries.append(current_entry)
+            current_entry = {
+                'company_info': stripped_line,
+                'role_info': '',
+                'bullets': [],
+                'environment': ''
+            }
+            continue
+
+        # If we are expecting a new entry but haven't found a company line yet
+        if current_entry is None:
+            # Skip lines until a company line is found, or if it's a role line right at the start
+            if is_experience_role_line(stripped_line):
+                # This could be a role line appearing before a company line in a weird format.
+                # Treat it as part of the header if it's the very first line of the section,
+                # or if a company line wasn't found before.
+                current_entry = {
+                    'company_info': '', # Company info is missing or embedded in role line
+                    'role_info': stripped_line,
+                    'bullets': [],
+                    'environment': ''
+                }
+                continue
+            else:
+                continue # Discard lines until a company or role line is found for a new entry
+
+        # Step 2: Detect Role Line (if not already captured in company line)
+        if is_experience_role_line(stripped_line):
+            current_entry['role_info'] = stripped_line
+            continue
+
+        # Step 3: Detect Environment Line
+        if stripped_line.lower().startswith('environment:'):
+            current_entry['environment'] = re.sub(r'^environment\s*:\s*', '', stripped_line, flags=re.I).strip()
+            continue
+        
+        # Step 4: Process Bullet Points / Responsibilities
+        # Any remaining line should be treated as a bullet point.
+        clean_bullet = re.sub(r'^[•\-\*]\s*', '', stripped_line).strip() # Remove explicit bullets
+        
+        is_new_bullet_start = False
+        if bullet_start_detection_regex.search(stripped_line): # Check if it matches a known bullet start pattern
+            is_new_bullet_start = True
+        elif current_entry['bullets'] and current_entry['bullets'][-1].strip().endswith(('.', '!', '?')):
+            # If the previous bullet ended a sentence, the current line (if not just a continuation) is a new bullet
+            is_new_bullet_start = True
+        
+        if is_new_bullet_start and clean_bullet:
+            current_entry['bullets'].append(clean_bullet)
+        elif current_entry['bullets']: # Concatenate if not new bullet start AND not ended previous sentence
+            if not current_entry['bullets'][-1].strip().endswith(('.', '!', '?')):
+                current_entry['bullets'][-1] += " " + clean_bullet
+            else: # previous bullet ended a sentence, so this must be a new bullet
+                current_entry['bullets'].append(clean_bullet)
+        else: # First bullet for this entry
+            if clean_bullet:
+                current_entry['bullets'].append(clean_bullet)
+
+    if current_entry: # Add the last collected entry after the loop finishes
+        experience_entries.append(current_entry)
+
+    # Final cleanup and filtering for robustness
+    final_parsed_entries = []
+    for entry in experience_entries:
+        # Filter empty bullets and ensure job entries have at least some info
+        filtered_bullets = [b for b in entry['bullets'] if b.strip() and len(b.split()) > 3] # Min 4 words for bullet
+
+        if entry['company_info'] or entry['role_info'] or filtered_bullets:
+            entry['bullets'] = filtered_bullets
+            final_parsed_entries.append(entry)
+
+    return final_parsed_entries
+
+    
 # You can keep your existing `is_date_line` function.
 
 def parse_projects_content(content_lines: list) -> list:
-    """
-    Final, universal parser that correctly handles multiple header formats
-    and removes all unreliable checks to prevent data loss.
-    """
     app_logger.info("Starting to parse project content with new universal parser...")
     projects = []
     project_indices = []
 
-    # First pass: Find all date lines, which are our reliable anchors.
-    # The faulty length check has been removed.
     for i, line in enumerate(content_lines):
         if is_date_line(line):
             project_indices.append(i)
@@ -947,34 +1314,26 @@ def parse_projects_content(content_lines: list) -> list:
     if not project_indices:
         return []
 
-    # Second pass: Build projects based on the anchor locations.
     for i, date_line_index in enumerate(project_indices):
         current_date_line = content_lines[date_line_index].strip()
         header_lines = []
         start_of_resp_index = date_line_index + 1
 
-        # This logic now handles both header formats in your resume.
         if len(current_date_line.split()) < 6:
-            # Format 1: The date is on its own line. The header is the two lines BEFORE it.
             start_of_header_index = max(0, date_line_index - 2)
             header_lines = [content_lines[j].strip() for j in range(start_of_header_index, date_line_index + 1)]
         else:
-            # Format 2: The date is on the same line as the company. The header is this line + the next line (title).
             header_lines.append(current_date_line)
             if date_line_index + 1 < len(content_lines):
-                # Check if the next line is another project before adding it as the title.
                 if not is_date_line(content_lines[date_line_index + 1]):
                     header_lines.append(content_lines[date_line_index + 1].strip())
                     start_of_resp_index += 1
 
-        # Clean any leading bullets from the collected header lines.
         cleaned_header = [h.lstrip('•- ').strip() for h in header_lines if h]
 
-        # Determine where the responsibilities for this project end.
         if i + 1 < len(project_indices):
             end_of_resp_index = project_indices[i+1]
             next_date_line = content_lines[end_of_resp_index].strip()
-            # Adjust the boundary if the next project's header is multi-line.
             if len(next_date_line.split()) < 6:
                 end_of_resp_index = max(0, end_of_resp_index - 2)
         else:
@@ -1003,29 +1362,23 @@ def parse_projects_content(content_lines: list) -> list:
 
 # --- PASTE THIS FUNCTION INTO YOUR CODE ---
 
+# Assuming the rest of your code is unchanged, only the generate_resume_html is modified.
+
 def generate_resume_html(resume_data: dict) -> str:
-    """
-    Generate HTML resume with the final corrected CSS to remove all unwanted spacing.
-    """
     template = """
     <!DOCTYPE html>
     <html>
     <head>
         <style>
             body { font-family: Calibri, Arial, sans-serif; margin: 0.7in; line-height: 1.2; font-size: 11pt; }
-            .header { <p>
-                         {{ email }}{% if email and phone %} | {% endif %}{{ phone }}
-                         {% if linkedin %} | <a href="{{ linkedin }}">{{ linkedin }}</a>{% endif %}
-                         {% if location %} | {{ location }}{% endif %}
-                    </p> }
+            .header { }
             .header h1 { margin: 0; font-size: 20pt; }
             .header h2 { margin: 0; font-size: 14pt; font-weight: normal; }
             .header p { margin: 2px 0; font-size: 10pt; }
             .section { margin-top: 15px; }
             .section-title { font-size: 14pt; font-weight: bold; color: #4F81BD; border-bottom: 1px solid #B0C4DE; padding-bottom: 3px; margin-bottom: 8px;}
             
-            /* --- FIX: The unnecessary 'margin-top' property has been removed from this rule. --- */
-            .project { margin-bottom: 18px; /* page-break-inside: avoid; */}
+            .project { margin-bottom: 18px; }
             
             .project-header { margin-top: 0; padding-top: 0; margin-bottom: 8px; }
             .project-header-line { margin: 0; padding: 0; font-weight: normal; line-height: 1.3; }
@@ -1036,20 +1389,43 @@ def generate_resume_html(resume_data: dict) -> str:
             .bullet-list li { margin-bottom: 6px; }
             .project-environment { margin-top: 8px; padding: 4px; background-color: #F2F2F2; font-size: 9pt; font-style: italic; }
             .project-environment b { font-style: normal; }
+
+            /* Style for plain text content that forms a single block */
+            .plain-text-block-content {
+                margin-top: 0;
+                margin-bottom: 10px;
+                white-space: pre-wrap; /* Preserves explicit newlines */
+                line-height: 1.3;
+            }
+
+            /* New style for Professional Experience headers */
+            .experience-main-header {
+                font-weight: bold;
+                margin-bottom: 5px; /* Space between header and first bullet */
+                line-height: 1.3;
+                font-size: 11.5pt; /* Slightly larger than normal body text */
+            }
         </style>
     </head>
     <body>
         <div class="header">
             <h1>{{ name }}</h1>
-            <h2>{{ title }}</h2>
-            <p>{{ email }} | {{ phone }} | {{ linkedin }} | {{ location }}</p>
+            {% if title %}<h2>{{ title }}</h2>{% endif %}
+            <p>
+                {% set contact_parts = [] %}
+                {% if email %}{% set _ = contact_parts.append(email) %}{% endif %}
+                {% if phone %}{% set _ = contact_parts.append(phone) %}{% endif %}
+                {% if linkedin %}{% set _ = contact_parts.append('<a href="' ~ linkedin ~ '">' ~ linkedin ~ '</a>') %}{% endif %}
+                {% if location %}{% set _ = contact_parts.append(location) %}{% endif %}
+                
+                {{ contact_parts | join(' | ') }}
+            </p>
         </div>
         {% for section in sections %}
         <div class="section">
             <div class="section-title">{{ section.name }}</div>
             
             {% if section.type == 'projects' %}
-                
                 {% for project in section.content %}
                 <div class="project">
                     <div class="project-header">
@@ -1071,14 +1447,43 @@ def generate_resume_html(resume_data: dict) -> str:
                     {% endif %}
                     
                     {% if project.environment %}
-                    <div class="project-environment"><b>Environment:</b> {{ project.environment }}</div>
+                    <div class="project-environment"><b>Environment:</b> {{ entry.environment }}</div>
                     {% endif %}
                 </div>
                 {% endfor %}
-            {% else %}
-                {% for item in section.content %}
-                <p>{{ item }}</p>
+            {% elif section.type == 'bullets' %} {# Applies to Professional Summary and Achievements now #}
+                <ul class="bullet-list">
+                    {% for bullet in section.content %}
+                    <li>{{ bullet }}</li>
+                    {% endfor %}
+                </ul>
+            {% elif section.type == 'professional_experience' %} {# NEW RENDERING FOR PROFESSIONAL EXPERIENCE #}
+                {% for entry in section.content %}
+                    <div class="experience-entry" style="margin-bottom: 15px;">
+                        {% if entry.company_info or entry.role_info %}
+                            <p class="experience-main-header">
+                                {# Render company info and role info, separated by a pipe if both exist #}
+                                {% if entry.company_info %}{{ entry.company_info }}{% endif %}
+                                {% if entry.company_info and entry.role_info %} | {% endif %}
+                                {% if entry.role_info %}{{ entry.role_info }}{% endif %}
+                            </p>
+                        {% endif %}
+                        {% if entry.bullets %}
+                            <ul class="bullet-list">
+                                {% for bullet in entry.bullets %}
+                                <li>{{ bullet }}</li>
+                                {% endfor %}
+                            </ul>
+                        {% endif %}
+                        {% if entry.environment %}
+                            <div class="project-environment"><b>Environment:</b> {{ entry.environment }}</div>
+                        {% endif %}
+                    </div>
                 {% endfor %}
+            {% elif section.type == 'plain_paragraph' or section.type == 'plain_text_block' %}
+                <p class="plain-text-block-content">
+                    {{ section.content }}
+                </p>
             {% endif %}
         </div>
         {% endfor %}
@@ -1088,11 +1493,13 @@ def generate_resume_html(resume_data: dict) -> str:
     from jinja2 import Template
     return Template(template).render(**resume_data)
 
-def generate_formatted_resume_pdf(filename: str, enhanced_text: str) -> str:
+# Modified generate_formatted_resume_pdf to accept user_info
+def generate_formatted_resume_pdf(filename: str, enhanced_text: str, user_info: dict) -> str:
     """Generate PDF resume using HTML template, with a fallback to DOCX."""
     logging.info("Attempting to generate PDF resume.")
     try:
-        resume_data = parse_resume_to_structure(enhanced_text)
+        # Pass user_info to parse_resume_to_structure
+        resume_data = parse_resume_to_structure(enhanced_text, user_info) # Modified call
         html_content = generate_resume_html(resume_data)
         
         try:
