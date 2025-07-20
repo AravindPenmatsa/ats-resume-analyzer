@@ -898,8 +898,6 @@ def generate_formatted_resume_pdf(filename: str, enhanced_text: str, user_info: 
             # Set additional environment variables for WeasyPrint if not set
             if not os.getenv('FONTCONFIG_PATH'):
                 os.environ['FONTCONFIG_PATH'] = '/nix/store/*/etc/fonts:/usr/share/fonts'
-            if not os.getenv('GDK_PIXBUF_MODULE_FILE'):
-                os.environ['GDK_PIXBUF_MODULE_FILE'] = '/nix/store/*/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache'
             
             from weasyprint import HTML
             logging.info("WeasyPrint import successful, attempting PDF generation...")

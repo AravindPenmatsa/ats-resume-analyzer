@@ -3,7 +3,6 @@ nixPkgs = [
   "python39", 
   "cairo", 
   "pango", 
-  "gdk-pixbuf", 
   "librsvg",
   "gobject-introspection",
   "fontconfig",
@@ -33,6 +32,5 @@ cmd = "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
 [variables]
 PYTHONPATH = "/app"
 FONTCONFIG_PATH = "/nix/store/*/etc/fonts:/usr/share/fonts"
-GDK_PIXBUF_MODULE_FILE = "/nix/store/*/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
 WEASYPRINT_DPI = "96"
 PANGOCAIRO_BACKEND = "fontconfig" 
