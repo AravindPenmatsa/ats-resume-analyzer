@@ -894,7 +894,6 @@ def generate_formatted_resume_pdf(filename: str, enhanced_text: str, user_info: 
         
         # Try WeasyPrint first with enhanced error handling
         try:
-            import os
             # Set additional environment variables for WeasyPrint if not set
             if not os.getenv('FONTCONFIG_PATH'):
                 os.environ['FONTCONFIG_PATH'] = '/nix/store/*/etc/fonts:/usr/share/fonts'
