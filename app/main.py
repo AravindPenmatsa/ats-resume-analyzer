@@ -1348,8 +1348,30 @@ async def upload_resume(
             missing_soft_skills = soft_skills - resume_words
             missing_keywords = missing_hard_skills.union(missing_soft_skills)
             
-            logging.info(f"Found {len(missing_keywords)} missing keywords for enhancement: {list(missing_keywords)[:5]}...")
+            logging.info(f"Found {len(missing_keywords)} missing keywords for enhancement: {list(missing_keywords)[:10]}...")
+            
+            # Debug: Log original resume structure
+            has_projects_before = bool(re.search(r'PROJECTS\s*\n', resume_text, re.IGNORECASE))
+            logging.info(f"DEBUG: Original resume has PROJECTS section: {has_projects_before}")
+            
             enhanced_text = enhance_resume_text(resume_text, missing_keywords)
+            
+            # Debug: Log enhanced text details
+            has_projects_after = bool(re.search(r'PROJECTS\s*\n', enhanced_text, re.IGNORECASE))
+            original_bullet_count = resume_text.count('•')
+            enhanced_bullet_count = enhanced_text.count('•')
+            logging.info(f"DEBUG: Enhanced resume has PROJECTS section: {has_projects_after}")
+            logging.info(f"DEBUG: Original bullets: {original_bullet_count}, Enhanced bullets: {enhanced_bullet_count}")
+            logging.info(f"DEBUG: Enhanced text length: {len(enhanced_text)} chars (original: {len(resume_text)} chars)")
+            
+            # Debug: Log a snippet of the enhanced PROJECTS section
+            projects_match = re.search(r'(PROJECTS\s*\n.*?)(?=\n[A-Z][A-Za-z ]+\n|\Z)', enhanced_text, re.DOTALL | re.IGNORECASE)
+            if projects_match:
+                projects_snippet = projects_match.group(1)[:500] + "..." if len(projects_match.group(1)) > 500 else projects_match.group(1)
+                logging.info(f"DEBUG: Enhanced PROJECTS section snippet: {projects_snippet}")
+            else:
+                logging.warning("DEBUG: No PROJECTS section found in enhanced text!")
+            
             output_path = generate_formatted_resume_pdf(filename, enhanced_text, user_info)
             download_link = f"/download/{os.path.basename(output_path)}"
             logging.info(f"Download link created: {download_link}")
@@ -1417,46 +1439,51 @@ def parse_resume_to_structure(enhanced_text: str, user_info: dict) -> dict:
     current_content = []
     
     lines = enhanced_text.split('\n')
-    for idx, line in enumerate(lines):
+    
+    # Debug: Log enhanced text analysis
+    logging.info(f"DEBUG: parse_resume_to_structure processing {len(lines)} lines")
+    enhanced_bullets_count = enhanced_text.count('•')
+    logging.info(f"DEBUG: Enhanced text has {enhanced_bullets_count} bullet points")
+    
+    for line_num, line in enumerate(lines):
         stripped_line = line.strip()
-        if not stripped_line:
-            if current_section and current_content:
-                sections[current_section] = current_content.copy()
-            continue
         
-        # Remove decorative characters and punctuation for section detection
-        # This handles cases like "---PROFESSIONAL SUMMARY---" or "PROFESSIONAL SUMMARY:"
-        cleaned_line = re.sub(r'^[-=\s]*', '', stripped_line)  # Remove leading dashes/equals
-        cleaned_line = re.sub(r'[-=\s]*$', '', cleaned_line)   # Remove trailing dashes/equals
-        normalized_line = re.sub(r'[.:,;!?]+$', '', cleaned_line).strip()
+        # Check if this line is a section header
+        is_section_header = False
+        for section in VALID_SECTIONS:
+            if stripped_line.upper() == section:
+                is_section_header = True
+                break
         
-        if normalized_line.upper() in VALID_SECTIONS:
-            if current_section and current_content:
-                sections[current_section] = current_content.copy()
+        if is_section_header:
+            # Save previous section
+            if current_section:
+                sections[current_section] = current_content
+                # Debug: Log section content
+                if current_section == "PROJECTS":
+                    bullets_in_section = len([line for line in current_content if line.strip().startswith('•')])
+                    logging.info(f"DEBUG: Saved PROJECTS section with {len(current_content)} lines and {bullets_in_section} bullets")
             
-            current_section = normalized_line.upper()
+            current_section = stripped_line.upper()
             current_content = []
-            logging.debug(f"Detected section: {current_section}")
+            logging.info(f"DEBUG: Found section header: {current_section}")
         else:
             if current_section:
-                current_content.append(line)
+                current_content.append(line)  # Keep original formatting
     
-    if current_section and current_content:
-        sections[current_section] = current_content.copy()
-    
-    logging.debug(f"Parsed sections: {sections.keys()}")
+    # Save the last section
+    if current_section:
+        sections[current_section] = current_content
+        # Debug: Log final section
+        if current_section == "PROJECTS":
+            bullets_in_section = len([line for line in current_content if line.strip().startswith('•')])
+            logging.info(f"DEBUG: Saved final PROJECTS section with {len(current_content)} lines and {bullets_in_section} bullets")
 
-    desired_sections = [
-        "PROFESSIONAL SUMMARY", 
-        "PROFILE SUMMARY",      
-        "EDUCATION", 
-        "TECHNICAL SKILLS",
-        "CERTIFICATIONS",
-        "ACHIEVEMENTS",         
-        "KEY STRENGTHS",         
-        "PROFESSIONAL EXPERIENCE", 
-        "PROJECTS"
-    ]
+    # Debug: Log sections found
+    logging.info(f"DEBUG: Found sections: {list(sections.keys())}")
+    
+    # Process sections in desired order
+    desired_sections = ["PROFESSIONAL SUMMARY", "PROFILE SUMMARY", "PROFESSIONAL EXPERIENCE", "PROJECTS", "EDUCATION", "TECHNICAL SKILLS", "CERTIFICATIONS", "ACHIEVEMENTS", "KEY STRENGTHS"]
     
     for section_name in desired_sections:
         section_content = sections.get(section_name.upper())
@@ -1493,20 +1520,39 @@ def parse_resume_to_structure(enhanced_text: str, user_info: dict) -> dict:
                     "type": "bullets",
                     "content": processed_content
                 })
-            elif section_name == 'PROJECTS':
-                projects = parse_projects_content(section_content) 
+            elif section_name.upper() == 'PROJECTS':
+                # Debug: Log projects processing
+                bullets_before_parsing = len([line for line in section_content if line.strip().startswith('•')])
+                logging.info(f"DEBUG: Processing PROJECTS section with {bullets_before_parsing} bullets before parsing")
+                
+                processed_content = parse_projects_content(section_content)
+                
+                # Debug: Log projects after processing
+                total_bullets_after = sum(len(project.get('responsibilities', [])) for project in processed_content)
+                logging.info(f"DEBUG: After parsing PROJECTS: {len(processed_content)} projects with total {total_bullets_after} bullets")
+                
                 resume_data["sections"].append({
                     "name": section_name.title(),
                     "type": "projects",
-                    "content": projects
+                    "content": processed_content
                 })
             else:
+                # Default case for other sections
+                processed_content = split_into_logical_bullets(section_content)
                 resume_data["sections"].append({
                     "name": section_name.title(),
-                    "type": "plain_text_block",
-                    "content": "\n".join([l.strip() for l in section_content if l.strip()])
+                    "type": "bullets",
+                    "content": processed_content
                 })
-    
+
+    # Debug: Log final resume data
+    projects_section = next((s for s in resume_data["sections"] if s["name"] == "Projects"), None)
+    if projects_section:
+        total_project_bullets = sum(len(project.get('responsibilities', [])) for project in projects_section["content"])
+        logging.info(f"DEBUG: Final resume data has {len(projects_section['content'])} projects with {total_project_bullets} total bullets")
+    else:
+        logging.warning("DEBUG: No Projects section found in final resume data!")
+
     return resume_data
 
 def parse_professional_summary(content_lines: list) -> list:
@@ -2105,6 +2151,11 @@ def parse_experience_section(content_lines: list) -> list:
 
 def parse_projects_content(content_lines: list) -> list:
     app_logger.info("Starting to parse project content with enhanced parser for multiple formats...")
+    
+    # Debug: Log input
+    input_bullets = len([line for line in content_lines if line.strip().startswith('•')])
+    logging.info(f"DEBUG: parse_projects_content received {len(content_lines)} lines with {input_bullets} bullets")
+    
     projects = []
     
     # Enhanced approach: Handle both role-first and company-first structures
@@ -2342,6 +2393,12 @@ def parse_projects_content(content_lines: list) -> list:
             projects.append(project_data)
     
     app_logger.info(f"Enhanced parsing complete. Found {len(projects)} projects.")
+    # Debug: Log output before returning
+    output_bullets = sum(len(project.get('responsibilities', [])) for project in projects)
+    logging.info(f"DEBUG: parse_projects_content returning {len(projects)} projects with total {output_bullets} bullets")
+    for i, project in enumerate(projects):
+        logging.info(f"DEBUG: Project {i+1}: {len(project.get('responsibilities', []))} bullets, header: {project.get('header', 'No header')}")
+    
     return projects
 
 # Enhances the resume text by appending keyword content to the Profile Summary and CMS section
