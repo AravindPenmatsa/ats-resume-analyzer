@@ -2398,45 +2398,20 @@ def enhance_resume_text(resume_text: str, missing_keywords: set) -> str:
         return resume_text
     
     # Validate that we have the required sections
-    has_profile_summary = bool(re.search(r'PROFILE SUMMARY\s*\n', resume_text, re.IGNORECASE))
-    has_professional_summary = bool(re.search(r'PROFESSIONAL SUMMARY\s*\n', resume_text, re.IGNORECASE))
     has_projects = bool(re.search(r'PROJECTS\s*\n', resume_text, re.IGNORECASE))
-    
-    if not (has_profile_summary or has_professional_summary):
-        logging.warning("No Profile Summary or Professional Summary section found. Cannot enhance summary.")
     
     if not has_projects:
         logging.warning("No Projects section found. Cannot enhance first project.")
+        return resume_text
         
-    # Split keywords for different sections
+    # Give ALL keywords to the first project (current job)
     keywords_list = list(missing_keywords)
-    # Split keywords evenly between summary and first project
-    half_point = len(keywords_list) // 2
-    summary_keywords = keywords_list[:half_point] if (has_profile_summary or has_professional_summary) else []
-    first_project_keywords = keywords_list[half_point:] if has_projects else []
     
-    # If one section is missing, give all keywords to the available section
-    if not summary_keywords and first_project_keywords:
-        first_project_keywords = keywords_list
-    elif summary_keywords and not first_project_keywords:
-        summary_keywords = keywords_list
-    
-    # 1. Generate 3 bullet points for each missing skill in Profile/Professional Summary
-    summary_bullets = []
-    if summary_keywords:
-        logging.info(f"Generating 3 bullet points each for {len(summary_keywords)} skills in summary section...")
-        for keyword in summary_keywords:
-            # Generate 3 different bullet points for each skill
-            for i in range(3):
-                bullet = generate_summary_bullet_from_gpt(keyword, i+1).lstrip("•- ").strip()
-                if bullet:
-                    summary_bullets.append(f"• {bullet}")
-    
-    # 2. Generate 3 bullet points for each missing skill in first project (latest/current job)
+    # Generate 3 bullet points for each missing skill in first project (current job)
     first_project_bullets = []
-    if first_project_keywords:
-        logging.info(f"Generating 3 bullet points each for {len(first_project_keywords)} skills in first project (latest job)...")
-        for keyword in first_project_keywords:
+    if keywords_list:
+        logging.info(f"Generating 3 bullet points each for {len(keywords_list)} skills in first project (current job)...")
+        for keyword in keywords_list:
             # Generate 3 different project-specific bullet points for each skill
             for i in range(3):
                 project_bullet = generate_project_bullet_point_from_gpt(keyword, i+1).lstrip("•- ").strip()
@@ -2445,53 +2420,7 @@ def enhance_resume_text(resume_text: str, missing_keywords: set) -> str:
 
     updated_text = resume_text
     
-    # 4. Enhance Profile Summary or Professional Summary
-    if summary_bullets:
-        # Try PROFILE SUMMARY first - use specific major section boundaries only
-        profile_pattern = r"(PROFILE SUMMARY\s*\n)(.*?)(?=\n(?:PROFESSIONAL EXPERIENCE|PROJECTS|EDUCATION|CERTIFICATIONS|ACHIEVEMENTS)\s*\n|\Z)"
-        if re.search(profile_pattern, updated_text, re.DOTALL | re.IGNORECASE):
-            try:
-                updated_text = re.sub(
-                    profile_pattern,
-                    lambda m: (
-                        f"{m.group(1)}"
-                        + "\n".join(
-                            [line.strip() for line in m.group(2).strip().splitlines() if line.strip()] +
-                            summary_bullets
-                        )
-                        + "\n"
-                    ),
-                    updated_text,
-                    flags=re.DOTALL | re.IGNORECASE
-                )
-                logging.info(f"Enhanced PROFILE SUMMARY with {len(summary_bullets)} bullet points.")
-            except Exception as e:
-                logging.error(f"Failed to enhance PROFILE SUMMARY: {e}")
-        else:
-            # Try PROFESSIONAL SUMMARY - use specific major section boundaries only
-            professional_pattern = r"(PROFESSIONAL SUMMARY\s*\n)(.*?)(?=\n(?:PROFESSIONAL EXPERIENCE|PROJECTS|EDUCATION|CERTIFICATIONS|ACHIEVEMENTS)\s*\n|\Z)"
-            if re.search(professional_pattern, updated_text, re.DOTALL | re.IGNORECASE):
-                try:
-                    updated_text = re.sub(
-                        professional_pattern,
-                        lambda m: (
-                            f"{m.group(1)}"
-                            + "\n".join(
-                                [line.strip() for line in m.group(2).strip().splitlines() if line.strip()] +
-                                summary_bullets
-                            )
-                            + "\n"
-                        ),
-                        updated_text,
-                        flags=re.DOTALL | re.IGNORECASE
-                    )
-                    logging.info(f"Enhanced PROFESSIONAL SUMMARY with {len(summary_bullets)} bullet points.")
-                except Exception as e:
-                    logging.error(f"Failed to enhance PROFESSIONAL SUMMARY: {e}")
-            else:
-                logging.warning("Neither PROFILE SUMMARY nor PROFESSIONAL SUMMARY found. No summary enhancement performed.")
-    
-    # 5. Enhance first project in PROJECTS section (latest/current job)
+    # Enhance ONLY the first project in PROJECTS section (current job)
     if first_project_bullets:
         # Find the PROJECTS section and enhance the first project - use specific major section boundaries only
         projects_pattern = r"(PROJECTS\s*\n)(.*?)(?=\n(?:PROFESSIONAL EXPERIENCE|EDUCATION|CERTIFICATIONS|ACHIEVEMENTS)\s*\n|\Z)"
@@ -2527,7 +2456,7 @@ def enhance_resume_text(resume_text: str, missing_keywords: set) -> str:
                     enhanced_projects_content = '\n'.join(enhanced_projects_lines)
                     updated_text = updated_text.replace(projects_match.group(0), 
                                                        f"{projects_match.group(1)}{enhanced_projects_content}")
-                    logging.info(f"Enhanced first project (latest job) with {len(first_project_bullets)} bullet points.")
+                    logging.info(f"Enhanced first project (current job) with {len(first_project_bullets)} bullet points.")
                 else:
                     logging.warning("Could not find end of first project. No project enhancement performed.")
             except Exception as e:
