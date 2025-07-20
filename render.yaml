@@ -3,7 +3,7 @@ services:
   - type: web
     name: ats-resume-analyzer
     runtime: python
-    buildCommand: "pip install -r requirements.txt"
+    buildCommand: "apt-get update && apt-get install -y libgobject-2.0-0 libpango-1.0-0 libharfbuzz0b libfontconfig1 libcairo2-dev pkg-config && pip install -r requirements.txt"
     startCommand: "uvicorn app.main:app --host 0.0.0.0 --port 10000"
     envVars:
       - key: PORT
