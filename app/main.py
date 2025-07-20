@@ -883,7 +883,7 @@ def generate_resume_html(resume_data: dict) -> str:
             {% if section.name == 'Projects' %}
                 <div class="section-title">Professional Experience</div>
             {% else %}
-                <div class="section-title">{{ section.name }}</div>
+            <div class="section-title">{{ section.name }}</div>
             {% endif %}
             {% if section.type == 'professional_experience' %}
                 {% for entry in section.content %}
@@ -901,12 +901,12 @@ def generate_resume_html(resume_data: dict) -> str:
                             {% set duration_raw = header_words[-3:] | join(' ') %}
                             {% set duration = duration_raw | replace('  ', ' ') | replace('  ', ' ') | trim %}
                             {% set company_location = ' '.join(header_words[:-3]) %}
-                        {% endif %}
+                    {% endif %}
                         
                         {# 3-line format: Company/Location, Duration, Role #}
                         <div class="project-company"><b>{{ company_location }}</b></div>
                         <div class="project-duration">{{ duration }}</div>
-                        {% if entry.role %}
+                    {% if entry.role %}
                             <div class="project-role"><b>{{ entry.role }}</b></div>
                         {% endif %}
                     {% endif %}
@@ -1452,7 +1452,7 @@ def parse_resume_to_structure(enhanced_text: str, user_info: dict) -> dict:
         "EDUCATION", 
         "TECHNICAL SKILLS",
         "CERTIFICATIONS",
-        "ACHIEVEMENTS",
+        "ACHIEVEMENTS",         
         "KEY STRENGTHS",         
         "PROFESSIONAL EXPERIENCE", 
         "PROJECTS"
@@ -1911,10 +1911,10 @@ def parse_experience_section(content_lines: list) -> list:
             
         entry_data = {
             'header': '',
-            'role': '',
-            'responsibilities': [],
-            'environment': ''
-        }
+                'role': '',
+                'responsibilities': [],
+                'environment': ''
+            }
         
         # Check if current line has a date (most reliable experience indicator)
         current_has_date = is_date_line(line)
@@ -2060,7 +2060,7 @@ def parse_experience_section(content_lines: list) -> list:
                 # No date found ahead, skip this line
                 i += 1
                 continue
-        
+
         # Skip the end date line if we processed a split date range
         if split_date_range:
             i += 1  # Skip the end date line
@@ -2100,7 +2100,7 @@ def parse_experience_section(content_lines: list) -> list:
         
         if entry_data['header'] or entry_data['role']:
             experience_entries.append(entry_data)
-    
+
     return experience_entries
 
 def parse_projects_content(content_lines: list) -> list:
@@ -2274,7 +2274,7 @@ def parse_projects_content(content_lines: list) -> list:
                 if j < len(content_lines) and is_date_line(content_lines[j]):
                     next_date_line_idx = j
                     break
-            
+
             if next_date_line_idx:
                 # Found a date line ahead - this could be role-first structure
                 next_line = content_lines[next_date_line_idx].strip()
@@ -2397,12 +2397,29 @@ def enhance_resume_text(resume_text: str, missing_keywords: set) -> str:
         logging.info("No missing keywords to enhance.")
         return resume_text
     
+    # Validate that we have the required sections
+    has_profile_summary = bool(re.search(r'PROFILE SUMMARY\s*\n', resume_text, re.IGNORECASE))
+    has_professional_summary = bool(re.search(r'PROFESSIONAL SUMMARY\s*\n', resume_text, re.IGNORECASE))
+    has_projects = bool(re.search(r'PROJECTS\s*\n', resume_text, re.IGNORECASE))
+    
+    if not (has_profile_summary or has_professional_summary):
+        logging.warning("No Profile Summary or Professional Summary section found. Cannot enhance summary.")
+    
+    if not has_projects:
+        logging.warning("No Projects section found. Cannot enhance first project.")
+        
     # Split keywords for different sections
     keywords_list = list(missing_keywords)
     # Split keywords evenly between summary and first project
     half_point = len(keywords_list) // 2
-    summary_keywords = keywords_list[:half_point]  # First half for summary
-    first_project_keywords = keywords_list[half_point:]  # Second half for first project
+    summary_keywords = keywords_list[:half_point] if (has_profile_summary or has_professional_summary) else []
+    first_project_keywords = keywords_list[half_point:] if has_projects else []
+    
+    # If one section is missing, give all keywords to the available section
+    if not summary_keywords and first_project_keywords:
+        first_project_keywords = keywords_list
+    elif summary_keywords and not first_project_keywords:
+        summary_keywords = keywords_list
     
     # 1. Generate 3 bullet points for each missing skill in Profile/Professional Summary
     summary_bullets = []
@@ -2430,76 +2447,93 @@ def enhance_resume_text(resume_text: str, missing_keywords: set) -> str:
     
     # 4. Enhance Profile Summary or Professional Summary
     if summary_bullets:
-        # Try PROFILE SUMMARY first
-        profile_pattern = r"(PROFILE SUMMARY\s*\n)(.*?)(?=\n[A-Z][A-Za-z ]+\n|\Z)"
+        # Try PROFILE SUMMARY first - use specific major section boundaries only
+        profile_pattern = r"(PROFILE SUMMARY\s*\n)(.*?)(?=\n(?:PROFESSIONAL EXPERIENCE|PROJECTS|EDUCATION|CERTIFICATIONS|ACHIEVEMENTS)\s*\n|\Z)"
         if re.search(profile_pattern, updated_text, re.DOTALL | re.IGNORECASE):
-            updated_text = re.sub(
-                profile_pattern,
-                lambda m: (
-                    f"{m.group(1)}"
-                    + "\n".join(
-                        [line.strip() for line in m.group(2).strip().splitlines() if line.strip()] +
-                        summary_bullets
-                    )
-                ),
-                updated_text,
-                flags=re.DOTALL | re.IGNORECASE
-            )
-            logging.info(f"Enhanced PROFILE SUMMARY with {len(summary_bullets)} bullet points.")
-        else:
-            # Try PROFESSIONAL SUMMARY
-            professional_pattern = r"(PROFESSIONAL SUMMARY\s*\n)(.*?)(?=\n[A-Z][A-Za-z ]+\n|\Z)"
-            if re.search(professional_pattern, updated_text, re.DOTALL | re.IGNORECASE):
+            try:
                 updated_text = re.sub(
-                    professional_pattern,
+                    profile_pattern,
                     lambda m: (
                         f"{m.group(1)}"
                         + "\n".join(
                             [line.strip() for line in m.group(2).strip().splitlines() if line.strip()] +
                             summary_bullets
                         )
+                        + "\n"
                     ),
                     updated_text,
                     flags=re.DOTALL | re.IGNORECASE
                 )
-                logging.info(f"Enhanced PROFESSIONAL SUMMARY with {len(summary_bullets)} bullet points.")
+                logging.info(f"Enhanced PROFILE SUMMARY with {len(summary_bullets)} bullet points.")
+            except Exception as e:
+                logging.error(f"Failed to enhance PROFILE SUMMARY: {e}")
+        else:
+            # Try PROFESSIONAL SUMMARY - use specific major section boundaries only
+            professional_pattern = r"(PROFESSIONAL SUMMARY\s*\n)(.*?)(?=\n(?:PROFESSIONAL EXPERIENCE|PROJECTS|EDUCATION|CERTIFICATIONS|ACHIEVEMENTS)\s*\n|\Z)"
+            if re.search(professional_pattern, updated_text, re.DOTALL | re.IGNORECASE):
+                try:
+                    updated_text = re.sub(
+                        professional_pattern,
+                        lambda m: (
+                            f"{m.group(1)}"
+                            + "\n".join(
+                                [line.strip() for line in m.group(2).strip().splitlines() if line.strip()] +
+                                summary_bullets
+                            )
+                            + "\n"
+                        ),
+                        updated_text,
+                        flags=re.DOTALL | re.IGNORECASE
+                    )
+                    logging.info(f"Enhanced PROFESSIONAL SUMMARY with {len(summary_bullets)} bullet points.")
+                except Exception as e:
+                    logging.error(f"Failed to enhance PROFESSIONAL SUMMARY: {e}")
+            else:
+                logging.warning("Neither PROFILE SUMMARY nor PROFESSIONAL SUMMARY found. No summary enhancement performed.")
     
     # 5. Enhance first project in PROJECTS section (latest/current job)
     if first_project_bullets:
-        # Find the PROJECTS section and enhance the first project
-        projects_pattern = r"(PROJECTS\s*\n)(.*?)(?=\n[A-Z][A-Za-z ]+\n|\Z)"
+        # Find the PROJECTS section and enhance the first project - use specific major section boundaries only
+        projects_pattern = r"(PROJECTS\s*\n)(.*?)(?=\n(?:PROFESSIONAL EXPERIENCE|EDUCATION|CERTIFICATIONS|ACHIEVEMENTS)\s*\n|\Z)"
         projects_match = re.search(projects_pattern, updated_text, re.DOTALL | re.IGNORECASE)
         
         if projects_match:
-            projects_content = projects_match.group(2)
-            projects_lines = projects_content.split('\n')
-            
-            # Find the end of first project (before next project or section)
-            first_project_end = len(projects_lines)
-            project_count = 0
-            
-            for i, line in enumerate(projects_lines):
-                line = line.strip()
-                # Detect start of new project (date line typically indicates project header)
-                if is_date_line(line) or (line and any(title_word in line.lower() for title_word in ['engineer', 'developer', 'analyst', 'sdet', 'qa']) and 
-                                         i > 0 and any(month in projects_lines[i+1] if i+1 < len(projects_lines) else '' for month in ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'])):
-                    project_count += 1
-                    if project_count == 2:  # Found start of second project
-                        first_project_end = i
-                        break
-            
-            # Insert first project bullets at the end of first project
-            if first_project_end > 0:
-                enhanced_projects_lines = (
-                    projects_lines[:first_project_end] + 
-                    first_project_bullets + 
-                    projects_lines[first_project_end:]
-                )
+            try:
+                projects_content = projects_match.group(2)
+                projects_lines = projects_content.split('\n')
                 
-                enhanced_projects_content = '\n'.join(enhanced_projects_lines)
-                updated_text = updated_text.replace(projects_match.group(0), 
-                                                   f"{projects_match.group(1)}{enhanced_projects_content}")
-                logging.info(f"Enhanced first project (latest job) with {len(first_project_bullets)} bullet points.")
+                # Find the end of first project (before next project or section)
+                first_project_end = len(projects_lines)
+                project_count = 0
+                
+                for i, line in enumerate(projects_lines):
+                    line = line.strip()
+                    # Detect start of new project (date line typically indicates project header)
+                    if is_date_line(line) or (line and any(title_word in line.lower() for title_word in ['engineer', 'developer', 'analyst', 'sdet', 'qa']) and 
+                                             i > 0 and i+1 < len(projects_lines) and any(month in projects_lines[i+1] for month in ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'])):
+                        project_count += 1
+                        if project_count == 2:  # Found start of second project
+                            first_project_end = i
+                            break
+                
+                # Insert first project bullets at the end of first project
+                if first_project_end > 0:
+                    enhanced_projects_lines = (
+                        projects_lines[:first_project_end] + 
+                        first_project_bullets + 
+                        projects_lines[first_project_end:]
+                    )
+                    
+                    enhanced_projects_content = '\n'.join(enhanced_projects_lines)
+                    updated_text = updated_text.replace(projects_match.group(0), 
+                                                       f"{projects_match.group(1)}{enhanced_projects_content}")
+                    logging.info(f"Enhanced first project (latest job) with {len(first_project_bullets)} bullet points.")
+                else:
+                    logging.warning("Could not find end of first project. No project enhancement performed.")
+            except Exception as e:
+                logging.error(f"Failed to enhance first project: {e}")
+        else:
+            logging.warning("PROJECTS section not found. No project enhancement performed.")
 
     logging.info("Resume text enhanced successfully.")
     return updated_text
