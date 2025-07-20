@@ -281,6 +281,7 @@ def is_experience_company_line(line: str) -> bool:
     return True
 
 def is_experience_role_line(line: str) -> bool:
+    # Enhanced to handle "Role:" prefix and various role formats
     return bool(re.search(r'^\s*Role:\s*([A-Za-z0-9\s,/\-]+(?:engineer|analyst|developer|manager|contractor|fulltime|sdet|qa|specialist)\b)?', line, re.IGNORECASE))
 
 def is_responsibility_heading(line: str) -> bool:
@@ -389,16 +390,27 @@ def add_header_section(resume_text):
     paren_matches = re.findall(r'\(\s*([^)]+)\s*\)', header_search_area)
     skills = ""
     if paren_matches:
-        # Find the longest match that contains commas (likely to be skills list)
-        skills_candidates = [match for match in paren_matches if ',' in match]
-        if skills_candidates:
-            skills = max(skills_candidates, key=len).strip()
-        else:
-            # Fallback to longest match
-            skills = max(paren_matches, key=len).strip()
+        # Filter out phone number patterns (like "513", area codes, etc.)
+        filtered_matches = []
+        for match in paren_matches:
+            # Skip if it looks like a phone number (only digits, or short digit sequences)
+            if not (match.strip().isdigit() and len(match.strip()) <= 4):
+                filtered_matches.append(match)
+        
+        if filtered_matches:
+            # Find the longest match that contains commas (likely to be skills list)
+            skills_candidates = [match for match in filtered_matches if ',' in match]
+            if skills_candidates:
+                skills = max(skills_candidates, key=len).strip()
+            else:
+                # Fallback to longest non-phone-number match
+                skills = max(filtered_matches, key=len).strip()
     
     email_pattern = re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', header_search_area)
-    phone_pattern = re.search(r'(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\+1\s*\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})', header_search_area)
+    
+    # Enhanced phone number extraction to get the full number
+    phone_pattern = re.search(r'(?:Phone\s*:?\s*)?(\+?1?\s*\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})', header_search_area, re.IGNORECASE)
+    
     linkedin_pattern = re.search(r'https?://(www\.)?linkedin\.com/in/[^\s]+', header_search_area)
     
     # Apply location and title patterns
@@ -418,14 +430,14 @@ def add_header_section(resume_text):
             else:
                 location = city
     
-    title_pattern = re.search(r'(SDET|QA Engineer|Software Engineer in Test|Senior Software Engineer in Test|Automation Engineer|Full Stack Developer|Sr\.Full Stack Developer|Software Development Engineer in Test)', header_search_area, re.IGNORECASE)
+    title_pattern = re.search(r'(SDET|QA Engineer|Software Engineer in Test|Senior Software Engineer in Test|Automation Engineer|Full Stack Developer|Sr\.Full Stack Developer|Software Development Engineer in Test|Senior Application Developer|Senior Software Developer)', header_search_area, re.IGNORECASE)
 
     return {
         "name": name if name else "Candidate Name",
-        "title": title_pattern.group(1).upper() if title_pattern else "",
+        "title": title_pattern.group(1) if title_pattern else "",
         "subtitle": skills,  # Add skills as subtitle
         "email": email_pattern.group(0) if email_pattern else "",
-        "phone": phone_pattern.group(0) if phone_pattern else "",
+        "phone": phone_pattern.group(1).strip() if phone_pattern else "",
         "linkedin": linkedin_pattern.group(0) if linkedin_pattern else "",
         "location": location
     }
@@ -641,15 +653,18 @@ def generate_resume_html(resume_data: dict) -> str:
             .experience-header .company-location { 
                 margin-right: auto; 
                 padding-right: 20px; 
+                font-weight: bold; 
             }
             .experience-header .duration { 
                 text-align: right; 
                 flex-shrink: 0; 
                 white-space: nowrap; 
+                font-weight: bold; 
             }
             .experience-role { 
                 margin: 5px 0 5px 0; 
                 font-style: italic; 
+                font-weight: bold; 
             }
             .bullet-list { list-style-position: outside; padding-left: 22px; margin: 0; }
             .bullet-list li { margin-bottom: 6px; }
@@ -1393,251 +1408,336 @@ def is_company_line(line: str) -> bool:
 # --- RESTRUCTURED parse_experience_section FUNCTION (more robust state machine) ---
 def parse_experience_section(content_lines: list) -> list:
     """
-    Parses professional experience content into structured entries,
-    preserving the original line structure (company/location/duration, role, responsibilities).
+    Enhanced parsing for professional experience content into structured entries,
+    handling multiple formats: company-first, role-first, and multi-line structures.
     """
     experience_entries = []
-    current_entry = None
-    responsibility_lines_buffer = [] # Buffer specifically for responsibilities
-    parsing_responsibilities = False
-    pending_role = None  # Store role that appears before company line
-
-    for line_num, line in enumerate(content_lines):
-        stripped_line = line.strip()
-
-        # Check if this is a role line that appears BEFORE a company line
-        # This should work for ALL projects, not just when current_entry is None
-        if (is_title_line(stripped_line) and 
-            not is_likely_company_location_date(stripped_line) and
-            not stripped_line.lower().startswith('environment:') and
-            not is_responsibility_heading(stripped_line)):
-            
-            # If we have buffered responsibilities, finalize the current entry first
-            if current_entry and responsibility_lines_buffer:
-                current_entry['responsibilities'] = split_into_logical_bullets(responsibility_lines_buffer)
-                responsibility_lines_buffer = []
-                experience_entries.append(current_entry)
-                current_entry = None
-                parsing_responsibilities = False
-            
-            # Store this as a pending role for the next company line
-            pending_role = stripped_line
+    i = 0
+    
+    while i < len(content_lines):
+        line = content_lines[i].strip()
+        if not line:
+            i += 1
             continue
-
-        if is_likely_company_location_date(stripped_line):
-            # New experience entry detected
-            if current_entry:
-                # Process any buffered responsibilities for the previous entry
-                if responsibility_lines_buffer:
-                    current_entry['responsibilities'] = split_into_logical_bullets(responsibility_lines_buffer)
-                    responsibility_lines_buffer = []
-                experience_entries.append(current_entry)
-
-            current_entry = {
-                'header': stripped_line,
-                'role': '',  # Always start with empty role
-                'responsibilities': [],
-                'environment': ''
-            }
             
-            # If we have a pending role, add it as the role (not in header)
-            if pending_role:
-                current_entry['role'] = pending_role
-                pending_role = None
+        entry_data = {
+            'header': '',
+            'role': '',
+            'responsibilities': [],
+            'environment': ''
+        }
+        
+        # Check if current line has a date (most reliable experience indicator)
+        current_has_date = is_date_line(line)
+        
+        if current_has_date:
+            # Current line has date - check structure
+            date_match = re.search(r'(\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}\s*(?:to|–|-)*\s*(?:Present|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}))$', line, re.I)
+            
+            if date_match and len(line.split()) > 6:
+                # Line contains both content and dates
+                dates_part = date_match.group(1)
+                before_dates = line[:date_match.start()].strip()
+                before_dates = re.sub(r'\s+', ' ', before_dates).strip()
                 
-            parsing_responsibilities = False # Reset state
-            continue
-
-        if current_entry:
-            if is_experience_role_line(stripped_line) and not current_entry['role']:
-                current_entry['role'] = stripped_line
-                parsing_responsibilities = False # A role line implies responsibilities haven't started yet
-                continue
-
-            if stripped_line.lower().startswith('environment:'):
-                current_entry['environment'] = re.sub(r'^environment\s*:\s*', '', stripped_line, flags=re.I).strip()
-                parsing_responsibilities = False # Environment line is usually the end of a block
-                continue
-
-            if is_responsibility_heading(stripped_line) or (current_entry['header'] and not current_entry['responsibilities'] and not parsing_responsibilities and stripped_line):
-                # This line or the next few lines are responsibilities
-                # Start collecting lines as potential responsibilities
-                parsing_responsibilities = True
-                if is_responsibility_heading(stripped_line): # Don't add the heading itself to content
+                # Check if there's a role line above this company+date line
+                role_above = None
+                if i > 0:
+                    prev_line = content_lines[i-1].strip()
+                    if prev_line and not is_date_line(prev_line) and not any(month in prev_line for month in ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']):
+                        # Previous line might be a role
+                        if (len(prev_line.split()) <= 10 and 
+                            any(title_word in prev_line.lower() for title_word in ['engineer', 'developer', 'analyst', 'sdet', 'qa', 'intern', 'specialist', 'consultant', 'manager', 'lead', 'test'])):
+                            role_above = prev_line
+                
+                if role_above:
+                    # Structure: Role (above) + Company+Date (current)
+                    entry_data['header'] = f"{before_dates} {dates_part}"
+                    entry_data['role'] = role_above
+                else:
+                    # Structure: Company+Date on same line, look for role below
+                    entry_data['header'] = f"{before_dates} {dates_part}"
+            else:
+                # Date is on its own line or short line
+                # Look for company and role in surrounding lines
+                company_parts = []
+                role_line = None
+                
+                # Look backwards for company and role (skip empty lines)
+                for j in range(i-1, max(i-3, -1), -1):
+                    if j >= 0 and content_lines[j].strip():
+                        potential_line = content_lines[j].strip()
+                        if (',' in potential_line or 
+                            any(suffix in potential_line.lower() for suffix in ['inc', 'corp', 'llc', 'ltd', 'group', 'solutions', 'services', 'client:']) or
+                            any(location in potential_line.lower() for location in ['dallas', 'tx', 'new york', 'charlotte', 'usa', 'india', 'hyderabad'])):
+                            company_parts.insert(0, potential_line)
+                        else:
+                            # Could be a role line
+                            if (not role_line and 
+                                len(potential_line.split()) <= 10 and
+                                any(title_word in potential_line.lower() for title_word in ['engineer', 'developer', 'analyst', 'sdet', 'qa', 'intern', 'specialist', 'consultant', 'manager', 'lead', 'test'])):
+                                role_line = potential_line
+                
+                # Assemble header
+                if company_parts:
+                    entry_data['header'] = f"{' '.join(company_parts)} {line}"
+                else:
+                    entry_data['header'] = line
+                    
+                if role_line:
+                    entry_data['role'] = role_line
+        
+        else:
+            # Current line doesn't have date - check if it's a role line followed by company+date
+            next_date_line_idx = None
+            for j in range(i+1, min(i+4, len(content_lines))):
+                if j < len(content_lines) and is_date_line(content_lines[j]):
+                    next_date_line_idx = j
+                    break
+            
+            if next_date_line_idx:
+                # Found a date line ahead - check if current line is a role
+                next_line = content_lines[next_date_line_idx].strip()
+                
+                # Check if current line looks like a role
+                if (len(line.split()) <= 10 and 
+                    any(title_word in line.lower() for title_word in ['engineer', 'developer', 'analyst', 'sdet', 'qa', 'intern', 'specialist', 'consultant', 'manager', 'lead', 'test'])):
+                    
+                    # This is likely: Role (current) + Company+Date (next)
+                    date_match = re.search(r'(\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}\s*(?:to|–|-)*\s*(?:Present|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}))$', next_line, re.I)
+                    
+                    if date_match:
+                        dates_part = date_match.group(1)
+                        company_part = next_line[:date_match.start()].strip()
+                        company_part = re.sub(r'\s+', ' ', company_part).strip()
+                        
+                        entry_data['header'] = f"{company_part} {dates_part}"
+                        entry_data['role'] = line
+                        i = next_date_line_idx  # Skip to the date line
+                    else:
+                        # Skip this line, not a clear experience start
+                        i += 1
+                        continue
+                else:
+                    # Skip this line, not a clear experience start
+                    i += 1
                     continue
-
-            if parsing_responsibilities and stripped_line:
-                responsibility_lines_buffer.append(stripped_line)
-            elif not stripped_line and parsing_responsibilities and responsibility_lines_buffer:
-                # An empty line signals the end of a responsibility block
-                current_entry['responsibilities'] = split_into_logical_bullets(responsibility_lines_buffer)
-                responsibility_lines_buffer = []
-                parsing_responsibilities = False # Stop parsing responsibilities for this block
-
-    # After the loop, process the last collected entry and its buffered responsibilities
-    if current_entry:
-        if responsibility_lines_buffer:
-            current_entry['responsibilities'] = split_into_logical_bullets(responsibility_lines_buffer)
-        experience_entries.append(current_entry)
-
+            else:
+                # No date found ahead, skip this line
+                i += 1
+                continue
+        
+        # Now collect responsibilities until next experience entry
+        i += 1
+        while i < len(content_lines):
+            resp_line = content_lines[i].strip()
+            
+            # Stop if we hit another experience entry (date line or role line followed by date)
+            if resp_line and is_date_line(resp_line):
+                break
+            
+            # Check if this looks like start of next experience (role followed by date)
+            if (resp_line and 
+                len(resp_line.split()) <= 10 and 
+                any(title_word in resp_line.lower() for title_word in ['engineer', 'developer', 'analyst', 'sdet', 'qa', 'intern', 'specialist', 'test']) and
+                i+1 < len(content_lines) and is_date_line(content_lines[i+1])):
+                break
+            
+            # Collect responsibilities and environment
+            if resp_line:
+                if resp_line.lower().startswith('environment:'):
+                    entry_data['environment'] = re.sub(r'^environment\s*:\s*', '', resp_line, flags=re.I).strip()
+                elif resp_line.startswith('Role:'):
+                    # Handle "Role:" prefix if not already captured
+                    if not entry_data['role']:
+                        entry_data['role'] = re.sub(r'^\s*Role:\s*', '', resp_line, flags=re.I).strip()
+                elif not resp_line.lower().startswith('responsibilities:'):
+                    entry_data['responsibilities'].append(resp_line.lstrip('•- ').strip())
+            
+            i += 1
+        
+        # Clean up the data
+        entry_data['header'] = entry_data['header'].strip()
+        entry_data['role'] = entry_data['role'].strip()
+        
+        if entry_data['header'] or entry_data['role']:
+            experience_entries.append(entry_data)
+    
     return experience_entries
 
 def parse_projects_content(content_lines: list) -> list:
-    app_logger.info("Starting to parse project content with new universal parser...")
+    app_logger.info("Starting to parse project content with enhanced parser for multiple formats...")
     projects = []
-    project_indices = []
-
-    # Find all lines that contain date patterns
-    for i, line in enumerate(content_lines):
-        if is_date_line(line):
-            project_indices.append(i)
-
-    if not project_indices:
-        return []
-
-    for i, date_line_index in enumerate(project_indices):
-        current_date_line = content_lines[date_line_index].strip()
-        header_lines = []
-        start_of_resp_index = date_line_index + 1
-
-        # Check if the date line also contains company information
-        # Look for pattern: "Company, Location [whitespace/tabs] Date Range"
-        date_match = re.search(r'(\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}\s*(?:to|–|-)*\s*(?:Present|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}))$', current_date_line, re.I)
+    
+    # Enhanced approach: Handle both role-first and company-first structures
+    i = 0
+    while i < len(content_lines):
+        line = content_lines[i].strip()
+        if not line:
+            i += 1
+            continue
+            
+        project_data = {
+            'header': [],
+            'responsibilities': [],
+            'environment': ''
+        }
         
-        if date_match and len(current_date_line.split()) > 6:
-            # This line might contain both company and dates, OR role and dates with company above
-            dates_part = date_match.group(1)
+        # Check if current line has a date (most reliable project indicator)
+        current_has_date = is_date_line(line)
+        
+        if current_has_date:
+            # Current line has date - check structure
+            date_match = re.search(r'(\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}\s*(?:to|–|-)*\s*(?:Present|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}))$', line, re.I)
             
-            # Extract the part before dates
-            before_dates = current_date_line[:date_match.start()].strip()
-            # Clean up excessive whitespace and tabs
-            before_dates = re.sub(r'\s+', ' ', before_dates).strip()
-            
-            # Check if the part before dates looks like a company (has location indicators)
-            # or if it looks more like a role
-            if (',' in before_dates and 
-                any(location in before_dates.lower() for location in ['dallas', 'tx', 'new york', 'charlotte', 'usa'])):
-                # This line contains company + dates
-                header_lines = [before_dates, dates_part]
-            else:
-                # This line likely contains role + dates, check for company above
-                company_line_index = date_line_index - 1
-                while company_line_index >= 0 and not content_lines[company_line_index].strip():
-                    company_line_index -= 1  # Skip empty lines
+            if date_match and len(line.split()) > 6:
+                # Line contains both content and dates (e.g., "Company, Location Date Range")
+                dates_part = date_match.group(1)
+                before_dates = line[:date_match.start()].strip()
+                before_dates = re.sub(r'\s+', ' ', before_dates).strip()
                 
-                if company_line_index >= 0:
-                    potential_company = content_lines[company_line_index].strip()
+                # Check if there's a role line above this company+date line
+                role_above = None
+                if i > 0:
+                    prev_line = content_lines[i-1].strip()
+                    if prev_line and not is_date_line(prev_line) and not any(month in prev_line for month in ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']):
+                        # Previous line might be a role - check if it looks like a job title
+                        if (len(prev_line.split()) <= 8 and 
+                            any(title_word in prev_line.lower() for title_word in ['engineer', 'developer', 'analyst', 'sdet', 'qa', 'intern', 'specialist', 'consultant', 'manager', 'lead'])):
+                            role_above = prev_line
+                
+                # Check if there's a role line below this company+date line
+                role_below = None
+                if i + 1 < len(content_lines):
+                    next_line = content_lines[i + 1].strip()
+                    if (next_line and not next_line.lower().startswith('responsibilities:') and 
+                        not next_line.startswith('•') and not next_line.startswith('-') and
+                        len(next_line.split()) <= 10 and
+                        any(title_word in next_line.lower() for title_word in ['engineer', 'developer', 'analyst', 'sdet', 'qa', 'intern', 'specialist', 'consultant', 'manager', 'lead', 'junior', 'jr', 'senior', 'sr'])):
+                        role_below = next_line
+                
+                # Determine header structure based on where role was found
+                if role_above:
+                    # Structure: Role (above) + Company+Date (current)
+                    project_data['header'] = [before_dates, role_above, dates_part]
+                elif role_below:
+                    # Structure: Company+Date (current) + Role (below)
+                    project_data['header'] = [before_dates, role_below, dates_part]
+                    i += 1  # Skip the role line since we've consumed it
+                else:
+                    # Structure: Company+Date on same line (no explicit role found)
+                    project_data['header'] = [before_dates, dates_part]
+            else:
+                # Date is on its own line or short line
+                # Look for company and role in previous lines
+                company_line = None
+                role_line = None
+                
+                # Look backwards for company (skip empty lines)
+                for j in range(i-1, max(i-3, -1), -1):
+                    if j >= 0 and content_lines[j].strip():
+                        potential_line = content_lines[j].strip()
+                        if (',' in potential_line or 
+                            any(suffix in potential_line.lower() for suffix in ['inc', 'corp', 'llc', 'ltd', 'group', 'solutions', 'services', 'client:']) or
+                            any(location in potential_line.lower() for location in ['dallas', 'tx', 'new york', 'charlotte', 'usa', 'india', 'hyderabad'])):
+                            if not company_line:
+                                company_line = potential_line
+                        else:
+                            # Could be a role line
+                            if (not role_line and 
+                                len(potential_line.split()) <= 8 and
+                                any(title_word in potential_line.lower() for title_word in ['engineer', 'developer', 'analyst', 'sdet', 'qa', 'intern', 'specialist', 'consultant', 'manager', 'lead'])):
+                                role_line = potential_line
+                
+                # Also check for role line after the date
+                if not role_line and i + 1 < len(content_lines):
+                    next_line = content_lines[i + 1].strip()
+                    if (next_line and not next_line.lower().startswith('responsibilities:') and 
+                        not next_line.startswith('•') and not next_line.startswith('-') and
+                        len(next_line.split()) <= 10 and
+                        any(title_word in next_line.lower() for title_word in ['engineer', 'developer', 'analyst', 'sdet', 'qa', 'intern', 'specialist', 'consultant', 'manager', 'lead', 'junior', 'jr', 'senior', 'sr'])):
+                        role_line = next_line
+                        i += 1  # Skip the role line since we've consumed it
+                
+                # Assemble header based on what we found
+                if company_line and role_line:
+                    project_data['header'] = [company_line, role_line, line]
+                elif company_line:
+                    project_data['header'] = [company_line, line]
+                else:
+                    project_data['header'] = [line]
+        
+        else:
+            # Current line doesn't have date - check if next few lines do
+            next_date_line_idx = None
+            for j in range(i+1, min(i+4, len(content_lines))):
+                if j < len(content_lines) and is_date_line(content_lines[j]):
+                    next_date_line_idx = j
+                    break
+            
+            if next_date_line_idx:
+                # Found a date line ahead - this could be role-first structure
+                next_line = content_lines[next_date_line_idx].strip()
+                
+                # Check if current line looks like a role
+                if (len(line.split()) <= 8 and 
+                    any(title_word in line.lower() for title_word in ['engineer', 'developer', 'analyst', 'sdet', 'qa', 'intern', 'specialist', 'consultant', 'manager', 'lead'])):
                     
-                    # Check if this looks like a company line
-                    if (',' in potential_company or 
-                        any(suffix in potential_company.lower() for suffix in ['inc', 'corp', 'llc', 'ltd', 'group', 'solutions']) or
-                        any(location in potential_company.lower() for location in ['dallas', 'tx', 'new york', 'charlotte', 'usa'])):
+                    # This is likely: Role (current) + Company+Date (next)
+                    date_match = re.search(r'(\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}\s*(?:to|–|-)*\s*(?:Present|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}))$', next_line, re.I)
+                    
+                    if date_match:
+                        dates_part = date_match.group(1)
+                        company_part = next_line[:date_match.start()].strip()
+                        company_part = re.sub(r'\s+', ' ', company_part).strip()
                         
-                        # Found company line above, use company + role + dates
-                        header_lines = [potential_company, before_dates, dates_part]
+                        project_data['header'] = [company_part, line, dates_part]
+                        i = next_date_line_idx  # Skip to the date line
                     else:
-                        # No company found above, just use role + dates
-                        header_lines = [before_dates, dates_part]
+                        # Skip this line, not a clear project start
+                        i += 1
+                        continue
                 else:
-                    # No company found above, just use role + dates
-                    header_lines = [before_dates, dates_part]
-        elif len(current_date_line.split()) > 6:
-            # This could be role+dates on same line, but check for company above first
-            # Look backwards to find the company name, skipping empty lines
-            company_line_index = date_line_index - 1
-            while company_line_index >= 0 and not content_lines[company_line_index].strip():
-                company_line_index -= 1  # Skip empty lines
-            
-            if company_line_index >= 0:
-                potential_company = content_lines[company_line_index].strip()
-                
-                # Check if this looks like a company line (same logic as below)
-                if (',' in potential_company or 
-                    any(suffix in potential_company.lower() for suffix in ['inc', 'corp', 'llc', 'ltd', 'group', 'solutions']) or
-                    any(location in potential_company.lower() for location in ['dallas', 'tx', 'new york', 'charlotte', 'usa'])):
-                    
-                    # Found company line above, now extract role from the date line
-                    if date_match:
-                        dates_part = date_match.group(1)
-                        role_part = current_date_line[:date_match.start()].strip()
-                        header_lines = [potential_company, role_part, dates_part]
-                    else:
-                        # No date match found, use the original line
-                        header_lines = [potential_company, current_date_line]
-                else:
-                    # Not a company line above, treat as role+dates line without company
-                    # Split the date line to separate role from dates
-                    if date_match:
-                        dates_part = date_match.group(1)
-                        role_part = current_date_line[:date_match.start()].strip()
-                        header_lines = [role_part, dates_part]
-                    else:
-                        # Fallback: treat the whole line as role+dates
-                        header_lines = [current_date_line]
+                    # Skip this line, not a clear project start
+                    i += 1
+                    continue
             else:
-                # No company found above, use original line
-                header_lines = [current_date_line]
-        else:
-            # Handle case where dates are on a shorter line (original else branch logic)
-            # Look backwards for company name, skipping empty lines
-            company_line_index = date_line_index - 1
-            while company_line_index >= 0 and not content_lines[company_line_index].strip():
-                company_line_index -= 1  # Skip empty lines
-            
-            # Look further back if needed (up to 3 lines back for company)
-            if company_line_index >= 0:
-                potential_company = content_lines[company_line_index].strip()
-                
-                # Check if this looks like a company line (has location or company-like words)
-                if (',' in potential_company or 
-                    any(suffix in potential_company.lower() for suffix in ['inc', 'corp', 'llc', 'ltd', 'group', 'solutions']) or
-                    any(location in potential_company.lower() for location in ['dallas', 'tx', 'new york', 'charlotte', 'usa'])):
-                    
-                    # Found company line, now extract role from the date line
-                    if date_match:
-                        dates_part = date_match.group(1)
-                        role_part = current_date_line[:date_match.start()].strip()
-                        header_lines = [potential_company, role_part, dates_part]
-                    else:
-                        # No date match found, use the original line
-                        header_lines = [potential_company, current_date_line]
-                else:
-                    # Not a company line, treat as role+dates line without company
-                    header_lines = [current_date_line]
-            else:
-                # Original logic for shorter date lines when no company found above
-                start_of_header_index = max(0, date_line_index - 2)
-                header_lines = [content_lines[j].strip() for j in range(start_of_header_index, date_line_index + 1)]
-
-        cleaned_header = [h.lstrip('•- ').strip() for h in header_lines if h]
-
-        if i + 1 < len(project_indices):
-            end_of_resp_index = project_indices[i+1]
-            next_date_line = content_lines[end_of_resp_index].strip()
-            if len(next_date_line.split()) < 6:
-                end_of_resp_index = max(0, end_of_resp_index - 2)
-        else:
-            end_of_resp_index = len(content_lines)
-
-        responsibility_lines = [
-            line.strip().lstrip('•- ').strip()
-            for line in content_lines[start_of_resp_index:end_of_resp_index]
-            if line.strip() and not line.strip().lower().startswith('environment:') and not line.strip().lower().startswith('responsibilities:')
-        ]
+                # No date found ahead, skip this line
+                i += 1
+                continue
         
-        environment_line = ""
-        for line in content_lines[start_of_resp_index:end_of_resp_index]:
-             if line.strip().lower().startswith('environment:'):
-                 environment_line = re.sub(r'^environment\s*:\s*', '', line.strip(), flags=re.I).strip()
-                 break
-
-        projects.append({
-            'header': cleaned_header,
-            'responsibilities': [line for line in responsibility_lines if line],
-            'environment': environment_line
-        })
-
-    app_logger.info(f"Finished parsing. Found {len(projects)} projects.")
+        # Now collect responsibilities until next project
+        i += 1
+        while i < len(content_lines):
+            resp_line = content_lines[i].strip()
+            
+            # Stop if we hit another project (date line or role line followed by date)
+            if resp_line and is_date_line(resp_line):
+                break
+            
+            # Check if this looks like start of next project (role followed by date)
+            if (resp_line and 
+                len(resp_line.split()) <= 8 and 
+                any(title_word in resp_line.lower() for title_word in ['engineer', 'developer', 'analyst', 'sdet', 'qa', 'intern', 'specialist']) and
+                i+1 < len(content_lines) and is_date_line(content_lines[i+1])):
+                break
+            
+            # Collect responsibilities and environment
+            if resp_line:
+                if resp_line.lower().startswith('environment:'):
+                    project_data['environment'] = re.sub(r'^environment\s*:\s*', '', resp_line, flags=re.I).strip()
+                elif not resp_line.lower().startswith('responsibilities:'):
+                    project_data['responsibilities'].append(resp_line.lstrip('•- ').strip())
+            
+            i += 1
+        
+        # Clean up header
+        project_data['header'] = [h.lstrip('•- ').strip() for h in project_data['header'] if h]
+        
+        if project_data['header']:
+            projects.append(project_data)
+    
+    app_logger.info(f"Enhanced parsing complete. Found {len(projects)} projects.")
     return projects
 
 # Enhances the resume text by appending keyword content to the Profile Summary and CMS section
