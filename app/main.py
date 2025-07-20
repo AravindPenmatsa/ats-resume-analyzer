@@ -864,7 +864,7 @@ def generate_formatted_resume_pdf(filename: str, enhanced_text: str, user_info: 
         if 'darwin' in str(sys.platform):
             os.environ['DYLD_LIBRARY_PATH'] = '/opt/homebrew/lib:' + os.environ.get('DYLD_LIBRARY_PATH', '')
         
-        output_path = os.path.join("generated_resumes", f"{os.path.splitext(filename)[0]}_formatted.pdf")
+        output_path = os.path.join(GENERATED_DIR, f"{os.path.splitext(filename)[0]}_formatted.pdf")
         
         # Try WeasyPrint first
         try:
