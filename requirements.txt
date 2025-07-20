@@ -8,3 +8,4 @@ spacy
 PyMuPDF
 python-multipart
 python-dotenv
+weasyprint
