@@ -2422,43 +2422,63 @@ def enhance_resume_text(resume_text: str, missing_keywords: set) -> str:
     
     # Enhance ONLY the first project in PROJECTS section (current job)
     if first_project_bullets:
-        # Find the PROJECTS section and enhance the first project - use specific major section boundaries only
-        projects_pattern = r"(PROJECTS\s*\n)(.*?)(?=\n(?:PROFESSIONAL EXPERIENCE|EDUCATION|CERTIFICATIONS|ACHIEVEMENTS)\s*\n|\Z)"
-        projects_match = re.search(projects_pattern, updated_text, re.DOTALL | re.IGNORECASE)
+        logging.info(f"Adding {len(first_project_bullets)} GPT bullets to current project...")
         
-        if projects_match:
+        # Find the PROJECTS section
+        projects_start = re.search(r'PROJECTS\s*\n', updated_text, re.IGNORECASE)
+        
+        if projects_start:
             try:
-                projects_content = projects_match.group(2)
-                projects_lines = projects_content.split('\n')
+                # Get the position after "PROJECTS" heading
+                projects_start_pos = projects_start.end()
                 
-                # Find the end of first project (before next project or section)
-                first_project_end = len(projects_lines)
-                project_count = 0
+                # Find the text after PROJECTS section
+                after_projects = updated_text[projects_start_pos:]
+                lines = after_projects.split('\n')
                 
-                for i, line in enumerate(projects_lines):
-                    line = line.strip()
-                    # Detect start of new project (date line typically indicates project header)
-                    if is_date_line(line) or (line and any(title_word in line.lower() for title_word in ['engineer', 'developer', 'analyst', 'sdet', 'qa']) and 
-                                             i > 0 and i+1 < len(projects_lines) and any(month in projects_lines[i+1] for month in ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'])):
-                        project_count += 1
-                        if project_count == 2:  # Found start of second project
-                            first_project_end = i
-                            break
+                # Find where to insert bullets - after existing bullet points in first project
+                insert_position = 0
+                found_bullets = False
                 
-                # Insert first project bullets at the end of first project
-                if first_project_end > 0:
-                    enhanced_projects_lines = (
-                        projects_lines[:first_project_end] + 
-                        first_project_bullets + 
-                        projects_lines[first_project_end:]
-                    )
-                    
-                    enhanced_projects_content = '\n'.join(enhanced_projects_lines)
-                    updated_text = updated_text.replace(projects_match.group(0), 
-                                                       f"{projects_match.group(1)}{enhanced_projects_content}")
-                    logging.info(f"Enhanced first project (current job) with {len(first_project_bullets)} bullet points.")
-                else:
-                    logging.warning("Could not find end of first project. No project enhancement performed.")
+                # Look for existing bullet points (• or - at start of line)
+                for i, line in enumerate(lines):
+                    stripped_line = line.strip()
+                    if stripped_line.startswith('•') or stripped_line.startswith('-') or stripped_line.startswith('*'):
+                        found_bullets = True
+                        insert_position = i + 1  # Insert after this bullet
+                    elif found_bullets and stripped_line and not stripped_line.startswith('•') and not stripped_line.startswith('-') and not stripped_line.startswith('*'):
+                        # We've found the end of bullet points
+                        break
+                    elif not stripped_line:
+                        # Empty line - might be end of bullets or spacing
+                        if found_bullets:
+                            insert_position = i
+                
+                # If no bullets found, insert after first few non-empty lines (header info)
+                if not found_bullets:
+                    header_lines = 0
+                    for i, line in enumerate(lines):
+                        stripped_line = line.strip()
+                        if stripped_line:
+                            header_lines += 1
+                            if header_lines >= 3:  # After company, role, date info
+                                insert_position = i + 1
+                                break
+                
+                # Insert the GPT bullets
+                enhanced_lines = (
+                    lines[:insert_position] +
+                    [''] +  # Add empty line before GPT bullets
+                    first_project_bullets +
+                    lines[insert_position:]
+                )
+                
+                # Reconstruct the text
+                enhanced_after_projects = '\n'.join(enhanced_lines)
+                updated_text = updated_text[:projects_start_pos] + enhanced_after_projects
+                
+                logging.info(f"Successfully enhanced first project with {len(first_project_bullets)} bullet points.")
+                
             except Exception as e:
                 logging.error(f"Failed to enhance first project: {e}")
         else:
