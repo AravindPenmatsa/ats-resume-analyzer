@@ -49,6 +49,32 @@ except OSError:
     subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"], check=True)
     logging.info("spaCy model downloaded successfully.")
 
+# Test WeasyPrint availability at startup
+try:
+    import weasyprint
+    logging.info("✅ WeasyPrint is available for PDF generation")
+    
+    # Test basic functionality
+    try:
+        from weasyprint import HTML
+        test_html = "<html><body><p>WeasyPrint test</p></body></html>"
+        HTML(string=test_html).write_pdf("/tmp/weasyprint_startup_test.pdf")
+        logging.info("✅ WeasyPrint startup test successful")
+    except Exception as test_error:
+        logging.warning(f"⚠️ WeasyPrint available but test failed: {test_error}")
+        
+except ImportError as e:
+    logging.warning(f"⚠️ WeasyPrint not available: {e}. Will use ReportLab fallback.")
+except Exception as e:
+    logging.error(f"❌ WeasyPrint error during startup: {e}")
+    
+# Test ReportLab availability
+try:
+    import reportlab
+    logging.info("✅ ReportLab is available for fallback PDF generation")
+except ImportError:
+    logging.error("❌ ReportLab not available - PDF generation may fail!")
+
 # Initialize FastAPI app
 app = FastAPI()
 
@@ -866,12 +892,31 @@ def generate_formatted_resume_pdf(filename: str, enhanced_text: str, user_info: 
         
         output_path = os.path.join(GENERATED_DIR, f"{os.path.splitext(filename)[0]}_formatted.pdf")
         
-        # Try WeasyPrint first
+        # Try WeasyPrint first with enhanced error handling
         try:
+            import os
+            # Set additional environment variables for WeasyPrint if not set
+            if not os.getenv('FONTCONFIG_PATH'):
+                os.environ['FONTCONFIG_PATH'] = '/nix/store/*/etc/fonts:/usr/share/fonts'
+            if not os.getenv('GDK_PIXBUF_MODULE_FILE'):
+                os.environ['GDK_PIXBUF_MODULE_FILE'] = '/nix/store/*/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache'
+            
             from weasyprint import HTML
+            logging.info("WeasyPrint import successful, attempting PDF generation...")
+            
+            # Test WeasyPrint with a simple document first
+            try:
+                HTML(string="<html><body><h1>Test</h1></body></html>").write_pdf("/tmp/test.pdf")
+                logging.info("WeasyPrint test document generation successful")
+            except Exception as test_error:
+                logging.warning(f"WeasyPrint test failed: {test_error}")
+            
+            # Generate actual PDF
             HTML(string=html_content).write_pdf(output_path)
-            logging.info(f"PDF generated successfully using WeasyPrint: {output_path}")
+            logging.info(f"✅ PDF generated successfully using WeasyPrint: {output_path}")
             return output_path
+        except ImportError as import_error:
+            logging.warning(f"WeasyPrint import failed: {import_error}. Trying ReportLab as fallback...")
         except Exception as weasyprint_error:
             logging.warning(f"WeasyPrint failed: {weasyprint_error}. Trying ReportLab as fallback...")
             
