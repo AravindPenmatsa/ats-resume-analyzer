@@ -621,6 +621,124 @@ def generate_bullet_point_from_gpt(keyword: str) -> str:
     except Exception as e:
         logging.error(f"❌ GPT API Exception for keyword '{keyword}': {e}", exc_info=True)
         return f"• {keyword.title()} experience (could not fetch GPT response)"
+
+def generate_summary_bullet_from_gpt(keyword: str, variation: int = 1) -> str:
+    """Generate varied bullet points for Profile/Professional Summary section."""
+    global client
+    
+    if client is None:
+        logging.warning("OpenAI client not configured. Returning placeholder bullet point.")
+        return f"• Experienced with {keyword.title()} technologies and best practices (OpenAI API key not configured)"
+
+    keyword = keyword.strip().lower()
+    
+    # Use variation-specific cache key
+    summary_cache_key = f"summary_{keyword}_v{variation}"
+    
+    # ✅ Return cached result if available
+    if summary_cache_key in bullet_cache:
+        logging.info(f"Cache hit for summary keyword: '{keyword}' variation {variation}. Returning cached bullet point.")
+        return bullet_cache[summary_cache_key]
+
+    logging.info(f"Cache miss for summary keyword '{keyword}' variation {variation}. Calling GPT-4o API.")
+    
+    # Different prompts for variations to ensure diversity
+    prompts = [
+        f"Write a professional summary bullet point highlighting expertise and experience with '{keyword}'. Focus on skills and capabilities. Use confident language. Limit to 30 words.",
+        f"Write a professional summary bullet point showing proven track record and proficiency in '{keyword}'. Emphasize achievements and competence. Limit to 30 words.", 
+        f"Write a professional summary bullet point demonstrating advanced knowledge and hands-on experience with '{keyword}'. Focus on practical application. Limit to 30 words."
+    ]
+    
+    prompt = prompts[(variation - 1) % len(prompts)]
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=80,
+            temperature=0.8,  # Higher temperature for more variation
+        )
+
+        bullet = response.choices[0].message.content
+        if bullet is None:
+            logging.warning("GPT response content was null.")
+            return f"• Experienced with {keyword.title()} technologies and methodologies (no content received)"
+        bullet = bullet.strip()
+
+        # ✅ Ensure bullet formatting
+        if not bullet.startswith("•"):
+            bullet = "• " + bullet
+
+        # ✅ Cache and return
+        logging.info(f"Successfully generated summary bullet for '{keyword}' variation {variation}. Caching result.")
+        bullet_cache[summary_cache_key] = bullet
+        with open(CACHE_PATH, "w", encoding="utf-8") as f:
+            json.dump(bullet_cache, f, indent=2)
+
+        return bullet
+
+    except Exception as e:
+        logging.error(f"❌ GPT API Exception for summary keyword '{keyword}' variation {variation}: {e}", exc_info=True)
+        return f"• Experienced with {keyword.title()} technologies and methodologies (could not fetch GPT response)"
+
+def generate_project_bullet_point_from_gpt(keyword: str, variation: int = 1) -> str:
+    """Generate varied project-specific bullet points for missing keywords."""
+    global client
+    
+    if client is None:
+        logging.warning("OpenAI client not configured. Returning placeholder bullet point.")
+        return f"• Implemented {keyword.title()} solutions in project development (OpenAI API key not configured)"
+
+    keyword = keyword.strip().lower()
+    
+    # Use variation-specific cache key for project bullets
+    project_cache_key = f"project_{keyword}_v{variation}"
+    
+    # ✅ Return cached result if available
+    if project_cache_key in bullet_cache:
+        logging.info(f"Cache hit for project keyword: '{keyword}' variation {variation}. Returning cached bullet point.")
+        return bullet_cache[project_cache_key]
+
+    logging.info(f"Cache miss for project keyword '{keyword}' variation {variation}. Calling GPT-4o API.")
+    
+    # Different prompts for variations to ensure diversity
+    prompts = [
+        f"Write a project bullet point showing specific implementation and development work with '{keyword}'. Focus on technical execution and results. Use action verbs. Limit to 35 words.",
+        f"Write a project bullet point highlighting optimization, integration, or enhancement achieved using '{keyword}'. Emphasize improvements and problem-solving. Limit to 35 words.",
+        f"Write a project bullet point demonstrating testing, deployment, or automation involving '{keyword}'. Focus on technical processes and quality assurance. Limit to 35 words."
+    ]
+    
+    prompt = prompts[(variation - 1) % len(prompts)]
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=90,
+            temperature=0.8,  # Higher temperature for more variation
+        )
+
+        bullet = response.choices[0].message.content
+        if bullet is None:
+            logging.warning("GPT response content was null.")
+            return f"• Implemented {keyword.title()} solutions to enhance project functionality (no content received)"
+        bullet = bullet.strip()
+
+        # ✅ Ensure bullet formatting
+        if not bullet.startswith("•"):
+            bullet = "• " + bullet
+
+        # ✅ Cache and return
+        logging.info(f"Successfully generated project bullet for '{keyword}' variation {variation}. Caching result.")
+        bullet_cache[project_cache_key] = bullet
+        with open(CACHE_PATH, "w", encoding="utf-8") as f:
+            json.dump(bullet_cache, f, indent=2)
+
+        return bullet
+
+    except Exception as e:
+        logging.error(f"❌ GPT API Exception for project keyword '{keyword}' variation {variation}: {e}", exc_info=True)
+        return f"• Implemented {keyword.title()} solutions to enhance project functionality (could not fetch GPT response)"
         
 # Save optimized resume with suggestions into a downloadable file
 def save_optimized_resume(filename: str, resume_text: str, suggestions: str) -> str:
@@ -1224,7 +1342,14 @@ async def upload_resume(
         download_link = None
         if generate_download.lower() == "yes":
             logging.info("Download requested. Generating enhanced resume PDF.")
-            enhanced_text = enhance_resume_text(resume_text, set())
+            # Get missing keywords for GPT enhancement
+            resume_words = set(resume_text.lower().split())
+            missing_hard_skills = hard_skills - resume_words
+            missing_soft_skills = soft_skills - resume_words
+            missing_keywords = missing_hard_skills.union(missing_soft_skills)
+            
+            logging.info(f"Found {len(missing_keywords)} missing keywords for enhancement: {list(missing_keywords)[:5]}...")
+            enhanced_text = enhance_resume_text(resume_text, missing_keywords)
             output_path = generate_formatted_resume_pdf(filename, enhanced_text, user_info)
             download_link = f"/download/{os.path.basename(output_path)}"
             logging.info(f"Download link created: {download_link}")
@@ -2266,24 +2391,115 @@ def generate_profile_summary(job_title: str, skills: set) -> str:
     return summary
 
 def enhance_resume_text(resume_text: str, missing_keywords: set) -> str:
-    logging.info(f"Enhancing resume text with {len(missing_keywords)} missing keywords.")    # 1. Generate bullet-style achievements using GPT and format them with bullet points
-    real_world_bullets = [
-        generate_bullet_point_from_gpt(k).lstrip("•- ").strip().capitalize() for k in missing_keywords
-    ]
+    logging.info(f"Enhancing resume text with {len(missing_keywords)} missing keywords.")
+    
+    if not missing_keywords:
+        logging.info("No missing keywords to enhance.")
+        return resume_text
+    
+    # Split keywords for different sections
+    keywords_list = list(missing_keywords)
+    # Split keywords evenly between summary and first project
+    half_point = len(keywords_list) // 2
+    summary_keywords = keywords_list[:half_point]  # First half for summary
+    first_project_keywords = keywords_list[half_point:]  # Second half for first project
+    
+    # 1. Generate 3 bullet points for each missing skill in Profile/Professional Summary
+    summary_bullets = []
+    if summary_keywords:
+        logging.info(f"Generating 3 bullet points each for {len(summary_keywords)} skills in summary section...")
+        for keyword in summary_keywords:
+            # Generate 3 different bullet points for each skill
+            for i in range(3):
+                bullet = generate_summary_bullet_from_gpt(keyword, i+1).lstrip("•- ").strip()
+                if bullet:
+                    summary_bullets.append(f"• {bullet}")
+    
+    # 2. Generate 3 bullet points for each missing skill in first project (latest/current job)
+    first_project_bullets = []
+    if first_project_keywords:
+        logging.info(f"Generating 3 bullet points each for {len(first_project_keywords)} skills in first project (latest job)...")
+        for keyword in first_project_keywords:
+            # Generate 3 different project-specific bullet points for each skill
+            for i in range(3):
+                project_bullet = generate_project_bullet_point_from_gpt(keyword, i+1).lstrip("•- ").strip()
+                if project_bullet:
+                    first_project_bullets.append(f"• {project_bullet}")
 
-    # 2. Insert bullet points at the END of the PROFILE SUMMARY section with normalized spacing
-    updated_text = re.sub(
-        r"(PROFILE SUMMARY\s*\n)(.*?)(?=\n[A-Z][A-Za-z ]+\n|\Z)",
-        lambda m: (
-            f"{m.group(1)}"
-            + "\n".join(
-                [line.strip() for line in m.group(2).strip().splitlines() if line.strip()] +
-                ([f"• {bullet}" for bullet in real_world_bullets if bullet.strip()] if real_world_bullets else [])
+    updated_text = resume_text
+    
+    # 4. Enhance Profile Summary or Professional Summary
+    if summary_bullets:
+        # Try PROFILE SUMMARY first
+        profile_pattern = r"(PROFILE SUMMARY\s*\n)(.*?)(?=\n[A-Z][A-Za-z ]+\n|\Z)"
+        if re.search(profile_pattern, updated_text, re.DOTALL | re.IGNORECASE):
+            updated_text = re.sub(
+                profile_pattern,
+                lambda m: (
+                    f"{m.group(1)}"
+                    + "\n".join(
+                        [line.strip() for line in m.group(2).strip().splitlines() if line.strip()] +
+                        summary_bullets
+                    )
+                ),
+                updated_text,
+                flags=re.DOTALL | re.IGNORECASE
             )
-        ),
-        resume_text,
-        flags=re.DOTALL | re.IGNORECASE
-    )
+            logging.info(f"Enhanced PROFILE SUMMARY with {len(summary_bullets)} bullet points.")
+        else:
+            # Try PROFESSIONAL SUMMARY
+            professional_pattern = r"(PROFESSIONAL SUMMARY\s*\n)(.*?)(?=\n[A-Z][A-Za-z ]+\n|\Z)"
+            if re.search(professional_pattern, updated_text, re.DOTALL | re.IGNORECASE):
+                updated_text = re.sub(
+                    professional_pattern,
+                    lambda m: (
+                        f"{m.group(1)}"
+                        + "\n".join(
+                            [line.strip() for line in m.group(2).strip().splitlines() if line.strip()] +
+                            summary_bullets
+                        )
+                    ),
+                    updated_text,
+                    flags=re.DOTALL | re.IGNORECASE
+                )
+                logging.info(f"Enhanced PROFESSIONAL SUMMARY with {len(summary_bullets)} bullet points.")
+    
+    # 5. Enhance first project in PROJECTS section (latest/current job)
+    if first_project_bullets:
+        # Find the PROJECTS section and enhance the first project
+        projects_pattern = r"(PROJECTS\s*\n)(.*?)(?=\n[A-Z][A-Za-z ]+\n|\Z)"
+        projects_match = re.search(projects_pattern, updated_text, re.DOTALL | re.IGNORECASE)
+        
+        if projects_match:
+            projects_content = projects_match.group(2)
+            projects_lines = projects_content.split('\n')
+            
+            # Find the end of first project (before next project or section)
+            first_project_end = len(projects_lines)
+            project_count = 0
+            
+            for i, line in enumerate(projects_lines):
+                line = line.strip()
+                # Detect start of new project (date line typically indicates project header)
+                if is_date_line(line) or (line and any(title_word in line.lower() for title_word in ['engineer', 'developer', 'analyst', 'sdet', 'qa']) and 
+                                         i > 0 and any(month in projects_lines[i+1] if i+1 < len(projects_lines) else '' for month in ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'])):
+                    project_count += 1
+                    if project_count == 2:  # Found start of second project
+                        first_project_end = i
+                        break
+            
+            # Insert first project bullets at the end of first project
+            if first_project_end > 0:
+                enhanced_projects_lines = (
+                    projects_lines[:first_project_end] + 
+                    first_project_bullets + 
+                    projects_lines[first_project_end:]
+                )
+                
+                enhanced_projects_content = '\n'.join(enhanced_projects_lines)
+                updated_text = updated_text.replace(projects_match.group(0), 
+                                                   f"{projects_match.group(1)}{enhanced_projects_content}")
+                logging.info(f"Enhanced first project (latest job) with {len(first_project_bullets)} bullet points.")
 
     logging.info("Resume text enhanced successfully.")
     return updated_text
