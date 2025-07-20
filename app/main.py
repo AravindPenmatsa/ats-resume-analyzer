@@ -659,12 +659,32 @@ def generate_resume_html(resume_data: dict) -> str:
                 text-align: right; 
                 flex-shrink: 0; 
                 white-space: nowrap; 
-                font-weight: bold; 
+                font-weight: bold;
+                letter-spacing: normal;
+                word-spacing: normal;
+                min-width: 150px;
             }
             .experience-role { 
                 margin: 5px 0 5px 0; 
                 font-style: italic; 
                 font-weight: bold; 
+            }
+            .project-company {
+                font-weight: bold;
+                margin: 0;
+                padding: 0;
+            }
+            .project-duration {
+                margin: 2px 0;
+                padding: 0;
+                font-size: 10pt;
+                font-weight: bold;
+            }
+            .project-role {
+                font-weight: bold;
+                font-style: italic;
+                margin: 2px 0 8px 0;
+                padding: 0;
             }
             .bullet-list { list-style-position: outside; padding-left: 22px; margin: 0; }
             .bullet-list li { margin-bottom: 6px; }
@@ -721,16 +741,26 @@ def generate_resume_html(resume_data: dict) -> str:
                 {% for entry in section.content %}
                 <div class="experience-entry">
                     {% if entry.header %}
-                        {% set header_parts = entry.header.split() %}
-                        {% set duration = header_parts[-3:] | join(' ') %}
-                        {% set company_location = ' '.join(header_parts[:-3]) %}
-                        <div class="experience-header">
-                            <div class="company-location">{{ company_location }}</div>
-                            <div class="duration">{{ duration }}</div>
-                        </div>
-                    {% endif %}
-                    {% if entry.role %}
-                        <div class="experience-role">{{ entry.role }}</div>
+                        {# Split header to separate company from duration #}
+                        {% set header_parts = entry.header.split('|') %}
+                        {% if header_parts|length >= 2 %}
+                            {% set company_location = header_parts[0].strip() %}
+                            {% set duration_raw = header_parts[1].strip() %}
+                            {% set duration = duration_raw | replace('  ', ' ') | replace('  ', ' ') | trim %}
+                        {% else %}
+                            {# Fallback if no | separator #}
+                            {% set header_words = entry.header.split() %}
+                            {% set duration_raw = header_words[-3:] | join(' ') %}
+                            {% set duration = duration_raw | replace('  ', ' ') | replace('  ', ' ') | trim %}
+                            {% set company_location = ' '.join(header_words[:-3]) %}
+                        {% endif %}
+                        
+                        {# 3-line format: Company/Location, Duration, Role #}
+                        <div class="project-company"><b>{{ company_location }}</b></div>
+                        <div class="project-duration">{{ duration }}</div>
+                        {% if entry.role %}
+                            <div class="project-role"><b>{{ entry.role }}</b></div>
+                        {% endif %}
                     {% endif %}
                     {% if entry.responsibilities %}
                         <ul class="bullet-list">
@@ -745,7 +775,7 @@ def generate_resume_html(resume_data: dict) -> str:
                 </div>
                 {% endfor %}
             {% elif section.type == 'projects' %}
-                {# Render projects similarly to professional experience #}
+                {# Render projects with 3-line format: Company/Location, Duration, Role #}
                 {% for entry in section.content %}
                 <div class="experience-entry">
                     {% if entry.header %}
@@ -753,14 +783,14 @@ def generate_resume_html(resume_data: dict) -> str:
                         {% if entry.header|length > 0 %}
                             {% set company_line = entry.header[0] if entry.header|length > 0 else '' %}
                             {% set role_line = entry.header[1] if entry.header|length > 1 else '' %}
-                            {% set date_line = entry.header[2] if entry.header|length > 2 else entry.header[-1] %}
+                            {% set date_line_raw = entry.header[2] if entry.header|length > 2 else entry.header[-1] %}
+                            {% set date_line = date_line_raw | replace('  ', ' ') | replace('  ', ' ') | trim %}
                             
-                            <div class="experience-header">
-                                <div class="company-location">{{ company_line }}</div>
-                                <div class="duration">{{ date_line }}</div>
-                            </div>
+                            {# 3-line format: Company/Location, Duration, Role #}
+                            <div class="project-company"><b>{{ company_line }}</b></div>
+                            <div class="project-duration">{{ date_line }}</div>
                             {% if role_line and role_line != date_line %}
-                                <div class="experience-role">{{ role_line }}</div>
+                                <div class="project-role"><b>{{ role_line }}</b></div>
                             {% endif %}
                         {% endif %}
                     {% endif %}
@@ -1379,6 +1409,36 @@ def is_date_line(line: str) -> bool:
     date_pattern = r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}\s*(?:to|–|-)*\s*(?:Present|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4})'
     return bool(re.search(date_pattern, line, re.I))
 
+def has_start_date(line: str) -> bool:
+    """Detects a line containing a start date (e.g., 'March 2022' or 'Company March 2022')."""
+    # Look for month + year at the end of line or before separator
+    start_date_pattern = r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}(?:\s*$|(?=\s*[–-])|(?=\s*to))'
+    return bool(re.search(start_date_pattern, line, re.I))
+
+def has_end_date(line: str) -> bool:
+    """Detects a line containing an end date (e.g., '– May 2023' or 'to Present')."""
+    # Look for end date patterns starting with separator
+    end_date_pattern = r'^\s*[–-]\s*(?:Present|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4})|^\s*to\s+(?:Present|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4})'
+    return bool(re.search(end_date_pattern, line, re.I))
+
+def combine_split_date_range(line1: str, line2: str) -> str:
+    """Combines two lines that together form a complete date range."""
+    # Extract start date from line1
+    start_match = re.search(r'\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4})', line1, re.I)
+    start_date = start_match.group(1) if start_match else ""
+    
+    # Extract end date from line2  
+    end_match = re.search(r'[–-]\s*((?:Present|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}))', line2, re.I)
+    if not end_match:
+        end_match = re.search(r'to\s+((?:Present|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}))', line2, re.I)
+    
+    end_date = end_match.group(1) if end_match else ""
+    
+    if start_date and end_date:
+        return f"{start_date} – {end_date}"
+    
+    return ""
+
 def is_company_line(line: str) -> bool:
     """
     Final corrected function to dynamically identify a company line.
@@ -1430,15 +1490,44 @@ def parse_experience_section(content_lines: list) -> list:
         # Check if current line has a date (most reliable experience indicator)
         current_has_date = is_date_line(line)
         
+        # Check for split date ranges (start date on current line, end date on next line)
+        split_date_range = ""
+        if not current_has_date and has_start_date(line):
+            # Current line has start date, check if next line has end date
+            if i + 1 < len(content_lines) and has_end_date(content_lines[i + 1]):
+                split_date_range = combine_split_date_range(line, content_lines[i + 1])
+                if split_date_range:
+                    current_has_date = True  # Treat as if we found a complete date
+        
         if current_has_date:
             # Current line has date - check structure
-            date_match = re.search(r'(\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}\s*(?:to|–|-)*\s*(?:Present|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}))$', line, re.I)
-            
-            if date_match and len(line.split()) > 6:
-                # Line contains both content and dates
-                dates_part = date_match.group(1)
-                before_dates = line[:date_match.start()].strip()
+            if split_date_range:
+                # Handle split date range case
+                dates_part = split_date_range
+                # Remove the start date from the current line to get company/role part
+                start_date_match = re.search(r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}', line, re.I)
+                if start_date_match:
+                    before_dates = line[:start_date_match.start()].strip()
+                else:
+                    before_dates = line.strip()
                 before_dates = re.sub(r'\s+', ' ', before_dates).strip()
+                date_match = True  # Indicate we have a valid date
+                line_has_content_and_dates = len(before_dates.split()) > 3  # Adjusted threshold for split dates
+            else:
+                # Handle normal single-line date range case
+                date_match = re.search(r'(\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}\s*(?:to|–|-)*\s*(?:Present|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}))$', line, re.I)
+                if date_match:
+                    dates_part = date_match.group(1)
+                    before_dates = line[:date_match.start()].strip()
+                    before_dates = re.sub(r'\s+', ' ', before_dates).strip()
+                    line_has_content_and_dates = len(line.split()) > 6
+                else:
+                    dates_part = ""
+                    before_dates = ""
+                    line_has_content_and_dates = False
+            
+            if date_match and line_has_content_and_dates:
+                # Line contains both content and dates
                 
                 # Check if there's a role line above this company+date line
                 role_above = None
@@ -1452,24 +1541,33 @@ def parse_experience_section(content_lines: list) -> list:
                 
                 if role_above:
                     # Structure: Role (above) + Company+Date (current)
-                    entry_data['header'] = f"{before_dates} {dates_part}"
+                    if '|' not in before_dates:
+                        entry_data['header'] = f"{before_dates} | {dates_part}"
+                    else:
+                        entry_data['header'] = f"{before_dates} {dates_part}"
                     entry_data['role'] = role_above
                 else:
                     # Structure: Company+Date on same line, look for role below
-                    entry_data['header'] = f"{before_dates} {dates_part}"
+                    if '|' not in before_dates:
+                        entry_data['header'] = f"{before_dates} | {dates_part}"
+                    else:
+                        entry_data['header'] = f"{before_dates} {dates_part}"
             else:
                 # Date is on its own line or short line
                 # Look for company and role in surrounding lines
                 company_parts = []
                 role_line = None
                 
-                # Look backwards for company and role (skip empty lines)
-                for j in range(i-1, max(i-3, -1), -1):
+                # Look backwards for company and role (skip empty lines but go further back)
+                for j in range(i-1, max(i-5, -1), -1):  # Increased range from 3 to 5
                     if j >= 0 and content_lines[j].strip():
                         potential_line = content_lines[j].strip()
+                        # Enhanced company detection including common company patterns
                         if (',' in potential_line or 
-                            any(suffix in potential_line.lower() for suffix in ['inc', 'corp', 'llc', 'ltd', 'group', 'solutions', 'services', 'client:']) or
-                            any(location in potential_line.lower() for location in ['dallas', 'tx', 'new york', 'charlotte', 'usa', 'india', 'hyderabad'])):
+                            any(suffix in potential_line.lower() for suffix in ['inc', 'corp', 'llc', 'ltd', 'group', 'solutions', 'services', 'client:', 'bank', 'financial', 'partners', 'permanente', 'america']) or
+                            any(location in potential_line.lower() for location in ['dallas', 'tx', 'new york', 'charlotte', 'usa', 'india', 'hyderabad', 'california', 'ca']) or
+                            # Additional pattern: lowercase company names with locations
+                            re.search(r'^[a-z\s]+,\s*[A-Za-z\s,]+$', potential_line)):
                             company_parts.insert(0, potential_line)
                         else:
                             # Could be a role line
@@ -1480,7 +1578,11 @@ def parse_experience_section(content_lines: list) -> list:
                 
                 # Assemble header
                 if company_parts:
-                    entry_data['header'] = f"{' '.join(company_parts)} {line}"
+                    company_text = ' '.join(company_parts)
+                    if '|' not in company_text and '|' not in line:
+                        entry_data['header'] = f"{company_text} | {line}"
+                    else:
+                        entry_data['header'] = f"{company_text} {line}"
                 else:
                     entry_data['header'] = line
                     
@@ -1511,7 +1613,10 @@ def parse_experience_section(content_lines: list) -> list:
                         company_part = next_line[:date_match.start()].strip()
                         company_part = re.sub(r'\s+', ' ', company_part).strip()
                         
-                        entry_data['header'] = f"{company_part} {dates_part}"
+                        if '|' not in company_part:
+                            entry_data['header'] = f"{company_part} | {dates_part}"
+                        else:
+                            entry_data['header'] = f"{company_part} {dates_part}"
                         entry_data['role'] = line
                         i = next_date_line_idx  # Skip to the date line
                     else:
@@ -1526,6 +1631,10 @@ def parse_experience_section(content_lines: list) -> list:
                 # No date found ahead, skip this line
                 i += 1
                 continue
+        
+        # Skip the end date line if we processed a split date range
+        if split_date_range:
+            i += 1  # Skip the end date line
         
         # Now collect responsibilities until next experience entry
         i += 1
@@ -1586,46 +1695,105 @@ def parse_projects_content(content_lines: list) -> list:
         # Check if current line has a date (most reliable project indicator)
         current_has_date = is_date_line(line)
         
+        # Check for split date ranges (start date on current line, end date on next line)
+        split_date_range = ""
+        if not current_has_date and has_start_date(line):
+            # Current line has start date, check if next line has end date
+            if i + 1 < len(content_lines) and has_end_date(content_lines[i + 1]):
+                split_date_range = combine_split_date_range(line, content_lines[i + 1])
+                if split_date_range:
+                    current_has_date = True  # Treat as if we found a complete date
+        
         if current_has_date:
             # Current line has date - check structure
-            date_match = re.search(r'(\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}\s*(?:to|–|-)*\s*(?:Present|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}))$', line, re.I)
-            
-            if date_match and len(line.split()) > 6:
-                # Line contains both content and dates (e.g., "Company, Location Date Range")
-                dates_part = date_match.group(1)
-                before_dates = line[:date_match.start()].strip()
-                before_dates = re.sub(r'\s+', ' ', before_dates).strip()
-                
-                # Check if there's a role line above this company+date line
-                role_above = None
-                if i > 0:
-                    prev_line = content_lines[i-1].strip()
-                    if prev_line and not is_date_line(prev_line) and not any(month in prev_line for month in ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']):
-                        # Previous line might be a role - check if it looks like a job title
-                        if (len(prev_line.split()) <= 8 and 
-                            any(title_word in prev_line.lower() for title_word in ['engineer', 'developer', 'analyst', 'sdet', 'qa', 'intern', 'specialist', 'consultant', 'manager', 'lead'])):
-                            role_above = prev_line
-                
-                # Check if there's a role line below this company+date line
-                role_below = None
-                if i + 1 < len(content_lines):
-                    next_line = content_lines[i + 1].strip()
-                    if (next_line and not next_line.lower().startswith('responsibilities:') and 
-                        not next_line.startswith('•') and not next_line.startswith('-') and
-                        len(next_line.split()) <= 10 and
-                        any(title_word in next_line.lower() for title_word in ['engineer', 'developer', 'analyst', 'sdet', 'qa', 'intern', 'specialist', 'consultant', 'manager', 'lead', 'junior', 'jr', 'senior', 'sr'])):
-                        role_below = next_line
-                
-                # Determine header structure based on where role was found
-                if role_above:
-                    # Structure: Role (above) + Company+Date (current)
-                    project_data['header'] = [before_dates, role_above, dates_part]
-                elif role_below:
-                    # Structure: Company+Date (current) + Role (below)
-                    project_data['header'] = [before_dates, role_below, dates_part]
-                    i += 1  # Skip the role line since we've consumed it
+            if split_date_range:
+                # Handle split date range case
+                dates_part = split_date_range
+                # Remove the start date from the current line to get company/role part
+                start_date_match = re.search(r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}', line, re.I)
+                if start_date_match:
+                    before_dates = line[:start_date_match.start()].strip()
                 else:
-                    # Structure: Company+Date on same line (no explicit role found)
+                    before_dates = line.strip()
+                before_dates = re.sub(r'\s+', ' ', before_dates).strip()
+                date_match = True  # Indicate we have a valid date
+                line_has_content_and_dates = len(before_dates.split()) > 3  # Adjusted threshold for split dates
+            else:
+                # Handle normal single-line date range case
+                date_match = re.search(r'(\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}\s*(?:to|–|-)*\s*(?:Present|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}))$', line, re.I)
+                if date_match:
+                    dates_part = date_match.group(1)
+                    before_dates = line[:date_match.start()].strip()
+                    before_dates = re.sub(r'\s+', ' ', before_dates).strip()
+                    line_has_content_and_dates = len(line.split()) > 6
+                else:
+                    dates_part = ""
+                    before_dates = ""
+                    line_has_content_and_dates = False
+            
+            if date_match and line_has_content_and_dates:
+                # Line contains both content and dates (e.g., "Role ... Date Range" or "Company, Location Date Range")
+                # dates_part and before_dates already set above based on split_date_range or normal case
+                
+                # Determine if before_dates is a role or company by checking patterns
+                is_role_line = (len(before_dates.split()) <= 10 and 
+                              any(title_word in before_dates.lower() for title_word in ['engineer', 'developer', 'analyst', 'sdet', 'qa', 'intern', 'specialist', 'consultant', 'manager', 'lead', 'test']))
+                
+                is_company_line = (',' in before_dates or 
+                                 any(suffix in before_dates.lower() for suffix in ['inc', 'corp', 'llc', 'ltd', 'group', 'solutions', 'services', 'client:', 'bank', 'financial', 'partners', 'permanente', 'america']) or
+                                 any(location in before_dates.lower() for location in ['dallas', 'tx', 'new york', 'charlotte', 'usa', 'india', 'hyderabad', 'california', 'ca']))
+                
+                if is_role_line and not is_company_line:
+                    # before_dates is a role, look for company above
+                    company_line = None
+                    for j in range(i-1, max(i-5, -1), -1):
+                        if j >= 0 and content_lines[j].strip():
+                            potential_line = content_lines[j].strip()
+                            if (',' in potential_line or 
+                                any(suffix in potential_line.lower() for suffix in ['inc', 'corp', 'llc', 'ltd', 'group', 'solutions', 'services', 'client:', 'bank', 'financial', 'partners', 'permanente', 'america']) or
+                                any(location in potential_line.lower() for location in ['dallas', 'tx', 'new york', 'charlotte', 'usa', 'india', 'hyderabad', 'california', 'ca']) or
+                                re.search(r'^[a-z\s]+,\s*[A-Za-z\s,]+$', potential_line)):
+                                company_line = potential_line
+                                break
+                    
+                    if company_line:
+                        # Structure: Company (above) + Role+Date (current)
+                        project_data['header'] = [company_line, before_dates, dates_part]
+                    else:
+                        # Structure: Role+Date only
+                        project_data['header'] = [before_dates, dates_part]
+                        
+                elif is_company_line:
+                    # before_dates is a company, check for role above or below
+                    role_above = None
+                    if i > 0:
+                        prev_line = content_lines[i-1].strip()
+                        if (prev_line and not is_date_line(prev_line) and not any(month in prev_line for month in ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']) and
+                            len(prev_line.split()) <= 10 and
+                            any(title_word in prev_line.lower() for title_word in ['engineer', 'developer', 'analyst', 'sdet', 'qa', 'intern', 'specialist', 'consultant', 'manager', 'lead', 'test'])):
+                            role_above = prev_line
+                    
+                    role_below = None
+                    if i + 1 < len(content_lines):
+                        next_line = content_lines[i + 1].strip()
+                        if (next_line and not next_line.lower().startswith('responsibilities:') and 
+                            not next_line.startswith('•') and not next_line.startswith('-') and
+                            len(next_line.split()) <= 10 and
+                            any(title_word in next_line.lower() for title_word in ['engineer', 'developer', 'analyst', 'sdet', 'qa', 'intern', 'specialist', 'consultant', 'manager', 'lead', 'test'])):
+                            role_below = next_line
+                    
+                    if role_above:
+                        # Structure: Role (above) + Company+Date (current)
+                        project_data['header'] = [before_dates, role_above, dates_part]
+                    elif role_below:
+                        # Structure: Company+Date (current) + Role (below)
+                        project_data['header'] = [before_dates, role_below, dates_part]
+                        i += 1  # Skip the role line since we've consumed it
+                    else:
+                        # Structure: Company+Date on same line (no explicit role found)
+                        project_data['header'] = [before_dates, dates_part]
+                else:
+                    # Ambiguous case - could be either, default to treating as company
                     project_data['header'] = [before_dates, dates_part]
             else:
                 # Date is on its own line or short line
@@ -1633,20 +1801,23 @@ def parse_projects_content(content_lines: list) -> list:
                 company_line = None
                 role_line = None
                 
-                # Look backwards for company (skip empty lines)
-                for j in range(i-1, max(i-3, -1), -1):
+                # Look backwards for company (skip empty lines but go further back)
+                for j in range(i-1, max(i-5, -1), -1):  # Increased range from 3 to 5
                     if j >= 0 and content_lines[j].strip():
                         potential_line = content_lines[j].strip()
+                        # Enhanced company detection including common company patterns
                         if (',' in potential_line or 
-                            any(suffix in potential_line.lower() for suffix in ['inc', 'corp', 'llc', 'ltd', 'group', 'solutions', 'services', 'client:']) or
-                            any(location in potential_line.lower() for location in ['dallas', 'tx', 'new york', 'charlotte', 'usa', 'india', 'hyderabad'])):
+                            any(suffix in potential_line.lower() for suffix in ['inc', 'corp', 'llc', 'ltd', 'group', 'solutions', 'services', 'client:', 'bank', 'financial', 'partners', 'permanente', 'america']) or
+                            any(location in potential_line.lower() for location in ['dallas', 'tx', 'new york', 'charlotte', 'usa', 'india', 'hyderabad', 'california', 'ca']) or
+                            # Additional pattern: lowercase company names with locations
+                            re.search(r'^[a-z\s]+,\s*[A-Za-z\s,]+$', potential_line)):
                             if not company_line:
                                 company_line = potential_line
                         else:
                             # Could be a role line
                             if (not role_line and 
-                                len(potential_line.split()) <= 8 and
-                                any(title_word in potential_line.lower() for title_word in ['engineer', 'developer', 'analyst', 'sdet', 'qa', 'intern', 'specialist', 'consultant', 'manager', 'lead'])):
+                                len(potential_line.split()) <= 10 and  # Increased from 8 to 10
+                                any(title_word in potential_line.lower() for title_word in ['engineer', 'developer', 'analyst', 'sdet', 'qa', 'intern', 'specialist', 'consultant', 'manager', 'lead', 'test'])):
                                 role_line = potential_line
                 
                 # Also check for role line after the date
@@ -1705,6 +1876,10 @@ def parse_projects_content(content_lines: list) -> list:
                 # No date found ahead, skip this line
                 i += 1
                 continue
+        
+        # Skip the end date line if we processed a split date range
+        if split_date_range:
+            i += 1  # Skip the end date line
         
         # Now collect responsibilities until next project
         i += 1
