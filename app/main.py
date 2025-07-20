@@ -864,14 +864,64 @@ def generate_formatted_resume_pdf(filename: str, enhanced_text: str, user_info: 
         if 'darwin' in str(sys.platform):
             os.environ['DYLD_LIBRARY_PATH'] = '/opt/homebrew/lib:' + os.environ.get('DYLD_LIBRARY_PATH', '')
         
-        from weasyprint import HTML
         output_path = os.path.join("generated_resumes", f"{os.path.splitext(filename)[0]}_formatted.pdf")
-        HTML(string=html_content).write_pdf(output_path)
-        logging.info(f"PDF generated successfully: {output_path}")
-        return output_path
+        
+        # Try WeasyPrint first
+        try:
+            from weasyprint import HTML
+            HTML(string=html_content).write_pdf(output_path)
+            logging.info(f"PDF generated successfully using WeasyPrint: {output_path}")
+            return output_path
+        except Exception as weasyprint_error:
+            logging.warning(f"WeasyPrint failed: {weasyprint_error}. Trying xhtml2pdf as fallback...")
+            
+            # Fallback to xhtml2pdf
+            try:
+                from xhtml2pdf import pisa
+                
+                # Create a simplified HTML for xhtml2pdf (it's less feature-rich than WeasyPrint)
+                simplified_html = f"""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <style>
+                        body {{ font-family: Arial, sans-serif; margin: 0.5in; line-height: 1.3; font-size: 11pt; }}
+                        .header h1 {{ margin: 0; font-size: 18pt; }}
+                        .header h2 {{ margin: 0; font-size: 12pt; font-weight: normal; }}
+                        .header p {{ margin: 2px 0; font-size: 10pt; }}
+                        .section {{ margin-top: 12px; }}
+                        .section-title {{ font-size: 12pt; font-weight: bold; color: #333; border-bottom: 1px solid #ccc; padding-bottom: 2px; margin-bottom: 6px; }}
+                        .experience-entry {{ margin-bottom: 15px; }}
+                        .project-company {{ font-weight: bold; margin: 0; }}
+                        .project-duration {{ margin: 2px 0; font-size: 10pt; font-weight: bold; }}
+                        .project-role {{ font-weight: bold; font-style: italic; margin: 2px 0 6px 0; }}
+                        .bullet-list {{ list-style-position: outside; padding-left: 20px; margin: 0; }}
+                        .bullet-list li {{ margin-bottom: 4px; }}
+                    </style>
+                </head>
+                <body>
+                    {html_content}
+                </body>
+                </html>
+                """
+                
+                with open(output_path, "wb") as result_file:
+                    pisa_status = pisa.CreatePDF(simplified_html, dest=result_file)
+                
+                if pisa_status.err:
+                    raise Exception(f"xhtml2pdf error: {pisa_status.err}")
+                
+                logging.info(f"PDF generated successfully using xhtml2pdf: {output_path}")
+                return output_path
+                
+            except Exception as xhtml2pdf_error:
+                logging.error(f"Both WeasyPrint and xhtml2pdf failed. WeasyPrint: {weasyprint_error}, xhtml2pdf: {xhtml2pdf_error}")
+                raise Exception("Failed to generate PDF resume. Both WeasyPrint and xhtml2pdf failed.")
+        
     except Exception as e:
         logging.error(f"PDF generation failed: {e}", exc_info=True)
-        raise Exception("Failed to generate PDF resume. Please ensure WeasyPrint is properly installed and configured.")
+        raise Exception("Failed to generate PDF resume. Please ensure PDF generation libraries are properly installed and configured.")
 
 # Modified upload_resume endpoint to ensure PDF output
 @app.post("/upload", response_class=HTMLResponse)

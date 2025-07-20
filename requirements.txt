@@ -9,3 +9,4 @@ PyMuPDF
 python-multipart
 python-dotenv
 weasyprint
+xhtml2pdf
