@@ -95,11 +95,15 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 templates.env.auto_reload = True  # ✅ force reload
 
-# Create folders for storing uploaded and generated resumes
-UPLOAD_DIR = "uploads"
-GENERATED_DIR = "generated_resumes"
+# Create a temporary directory for storing uploaded and generated resumes
+BASE_DIR = Path(__file__).resolve().parent
+UPLOAD_DIR = BASE_DIR / "uploads"
+GENERATED_DIR = BASE_DIR / "generated_resumes"
+
+# Ensure directories exist
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(GENERATED_DIR, exist_ok=True)
+
 logging.info(f"Required directories '{UPLOAD_DIR}' and '{GENERATED_DIR}' are ready.")
 
 # Load spaCy model for NLP tasks
