@@ -878,53 +878,128 @@ def generate_formatted_resume_pdf(filename: str, enhanced_text: str, user_info: 
             # Fallback to ReportLab (pure Python, no system dependencies)
             try:
                 from reportlab.lib.pagesizes import letter
-                from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+                from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
                 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
                 from reportlab.lib.units import inch
                 from reportlab.lib import colors
-                from reportlab.lib.enums import TA_LEFT, TA_CENTER
+                from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY
                 
-                # Create PDF using ReportLab
+                # Create PDF using ReportLab with enhanced formatting
                 doc = SimpleDocTemplate(output_path, pagesize=letter, 
-                                      rightMargin=0.75*inch, leftMargin=0.75*inch,
-                                      topMargin=0.75*inch, bottomMargin=0.75*inch)
+                                      rightMargin=0.7*inch, leftMargin=0.7*inch,
+                                      topMargin=0.7*inch, bottomMargin=0.7*inch)
                 
                 styles = getSampleStyleSheet()
                 
-                # Custom styles
+                # Enhanced custom styles to match WeasyPrint
                 title_style = ParagraphStyle(
                     'CustomTitle',
                     parent=styles['Title'],
-                    fontSize=18,
-                    spaceAfter=6,
-                    alignment=TA_CENTER
+                    fontSize=20,
+                    fontName='Helvetica-Bold',
+                    spaceAfter=2,
+                    alignment=TA_LEFT,
+                    textColor=colors.black
                 )
                 
                 subtitle_style = ParagraphStyle(
                     'CustomSubtitle',
                     parent=styles['Normal'],
-                    fontSize=12,
-                    spaceAfter=12,
-                    alignment=TA_CENTER
+                    fontSize=14,
+                    fontName='Helvetica',
+                    spaceAfter=2,
+                    alignment=TA_LEFT,
+                    textColor=colors.black
+                )
+                
+                contact_style = ParagraphStyle(
+                    'ContactStyle',
+                    parent=styles['Normal'],
+                    fontSize=10,
+                    fontName='Helvetica',
+                    spaceAfter=15,
+                    alignment=TA_LEFT,
+                    textColor=colors.black
                 )
                 
                 section_title_style = ParagraphStyle(
                     'SectionTitle',
                     parent=styles['Heading2'],
-                    fontSize=12,
-                    spaceBefore=12,
-                    spaceAfter=6,
-                    textColor=colors.HexColor('#4F81BD')
+                    fontSize=14,
+                    fontName='Helvetica-Bold',
+                    spaceBefore=15,
+                    spaceAfter=8,
+                    textColor=colors.HexColor('#4F81BD'),
+                    borderWidth=1,
+                    borderColor=colors.HexColor('#B0C4DE'),
+                    borderPadding=3
+                )
+                
+                company_style = ParagraphStyle(
+                    'CompanyStyle',
+                    parent=styles['Normal'],
+                    fontSize=11,
+                    fontName='Helvetica-Bold',
+                    spaceBefore=8,
+                    spaceAfter=2,
+                    alignment=TA_LEFT
+                )
+                
+                duration_style = ParagraphStyle(
+                    'DurationStyle',
+                    parent=styles['Normal'],
+                    fontSize=10,
+                    fontName='Helvetica-Bold',
+                    spaceAfter=2,
+                    alignment=TA_LEFT
+                )
+                
+                role_style = ParagraphStyle(
+                    'RoleStyle',
+                    parent=styles['Normal'],
+                    fontSize=11,
+                    fontName='Helvetica-BoldOblique',
+                    spaceAfter=8,
+                    alignment=TA_LEFT
+                )
+                
+                bullet_style = ParagraphStyle(
+                    'BulletStyle',
+                    parent=styles['Normal'],
+                    fontSize=11,
+                    fontName='Helvetica',
+                    spaceBefore=3,
+                    spaceAfter=3,
+                    leftIndent=22,
+                    bulletIndent=10,
+                    alignment=TA_JUSTIFY
+                )
+                
+                environment_style = ParagraphStyle(
+                    'EnvironmentStyle',
+                    parent=styles['Normal'],
+                    fontSize=9,
+                    fontName='Helvetica-Oblique',
+                    spaceBefore=8,
+                    spaceAfter=5,
+                    leftIndent=10,
+                    rightIndent=10,
+                    backColor=colors.HexColor('#F2F2F2'),
+                    borderWidth=0.5,
+                    borderColor=colors.HexColor('#E0E0E0'),
+                    borderPadding=4
                 )
                 
                 content = []
                 
-                # Add header
+                # Enhanced header section
                 content.append(Paragraph(resume_data['name'], title_style))
                 if resume_data.get('title'):
                     content.append(Paragraph(resume_data['title'], subtitle_style))
+                if resume_data.get('subtitle'):
+                    content.append(Paragraph(resume_data['subtitle'], contact_style))
                 
-                # Contact info
+                # Enhanced contact info
                 contact_parts = []
                 if resume_data.get('email'):
                     contact_parts.append(resume_data['email'])
@@ -932,19 +1007,29 @@ def generate_formatted_resume_pdf(filename: str, enhanced_text: str, user_info: 
                     contact_parts.append(resume_data['phone'])
                 if resume_data.get('location'):
                     contact_parts.append(resume_data['location'])
+                if resume_data.get('linkedin'):
+                    contact_parts.append(resume_data['linkedin'])
                 
                 if contact_parts:
-                    content.append(Paragraph(' | '.join(contact_parts), subtitle_style))
+                    content.append(Paragraph(' | '.join(contact_parts), contact_style))
                 
-                content.append(Spacer(1, 0.2*inch))
+                content.append(Spacer(1, 0.1*inch))
                 
-                # Add sections
+                # Enhanced sections with professional styling
                 for section in resume_data['sections']:
-                    content.append(Paragraph(section['name'], section_title_style))
+                    # Section title with underline
+                    section_title = section['name']
+                    if section_title == 'Projects':
+                        section_title = 'Professional Experience'
+                    
+                    content.append(Paragraph(section_title, section_title_style))
+                    content.append(HRFlowable(width="100%", thickness=1, 
+                                            color=colors.HexColor('#B0C4DE'), 
+                                            spaceBefore=3, spaceAfter=8))
                     
                     if section['type'] == 'professional_experience':
                         for entry in section['content']:
-                            # Company and duration
+                            # Enhanced company and duration formatting
                             header = entry.get('header', '')
                             if '|' in header:
                                 parts = header.split('|')
@@ -954,44 +1039,83 @@ def generate_formatted_resume_pdf(filename: str, enhanced_text: str, user_info: 
                                 company = header
                                 duration = ''
                             
-                            content.append(Paragraph(f"<b>{company}</b>", styles['Normal']))
+                            content.append(Paragraph(company, company_style))
                             if duration:
-                                content.append(Paragraph(f"<b>{duration}</b>", styles['Normal']))
+                                content.append(Paragraph(duration, duration_style))
                             if entry.get('role'):
-                                content.append(Paragraph(f"<i><b>{entry['role']}</b></i>", styles['Normal']))
+                                content.append(Paragraph(entry['role'], role_style))
                             
-                            # Responsibilities
+                            # Enhanced responsibilities with proper bullet formatting
                             for resp in entry.get('responsibilities', []):
-                                content.append(Paragraph(f"• {resp}", styles['Normal']))
+                                content.append(Paragraph(f"• {resp}", bullet_style))
                             
-                            content.append(Spacer(1, 0.1*inch))
+                            # Environment section if present
+                            if entry.get('environment'):
+                                env_text = f"<b>Environment:</b> {entry['environment']}"
+                                content.append(Paragraph(env_text, environment_style))
+                            
+                            content.append(Spacer(1, 0.15*inch))
                     
                     elif section['type'] == 'bullets':
                         for bullet in section['content']:
-                            content.append(Paragraph(f"• {bullet}", styles['Normal']))
+                            content.append(Paragraph(f"• {bullet}", bullet_style))
                         content.append(Spacer(1, 0.1*inch))
                     
                     elif section['type'] == 'plain_text_block':
-                        lines = section['content'].split('\n')
-                        for line in lines:
-                            if line.strip():
-                                content.append(Paragraph(line.strip(), styles['Normal']))
+                        # Handle Technical Skills as table if it contains colons
+                        if section['name'] == 'Technical Skills' and ':' in section['content']:
+                            lines = section['content'].split('\n')
+                            skills_data = []
+                            for line in lines:
+                                if line.strip() and ':' in line:
+                                    parts = line.split(':', 1)
+                                    skills_data.append([f"{parts[0].strip()}:", parts[1].strip()])
+                                elif line.strip():
+                                    skills_data.append([line.strip(), ''])
+                            
+                            if skills_data:
+                                skills_table = Table(skills_data, colWidths=[2*inch, 4*inch])
+                                skills_table.setStyle(TableStyle([
+                                    ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+                                    ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
+                                    ('FONTSIZE', (0, 0), (-1, -1), 11),
+                                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                                    ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                                    ('RIGHTPADDING', (0, 0), (0, -1), 15),
+                                    ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+                                ]))
+                                content.append(skills_table)
+                        else:
+                            # Regular plain text
+                            lines = section['content'].split('\n')
+                            for line in lines:
+                                if line.strip():
+                                    content.append(Paragraph(line.strip(), bullet_style))
                         content.append(Spacer(1, 0.1*inch))
                     
                     elif section['type'] == 'projects':
                         for project in section['content']:
                             header = project.get('header', [])
                             if isinstance(header, list) and header:
-                                content.append(Paragraph(f"<b>{header[0]}</b>", styles['Normal']))
+                                # Company
+                                content.append(Paragraph(header[0], company_style))
+                                # Duration (usually the last element)
                                 if len(header) > 1:
-                                    content.append(Paragraph(f"<b>{header[-1]}</b>", styles['Normal']))
+                                    content.append(Paragraph(header[-1], duration_style))
+                                # Role (middle element if exists)
                                 if len(header) > 2:
-                                    content.append(Paragraph(f"<i><b>{header[1]}</b></i>", styles['Normal']))
+                                    content.append(Paragraph(header[1], role_style))
                             
+                            # Enhanced responsibilities
                             for resp in project.get('responsibilities', []):
-                                content.append(Paragraph(f"• {resp}", styles['Normal']))
+                                content.append(Paragraph(f"• {resp}", bullet_style))
                             
-                            content.append(Spacer(1, 0.1*inch))
+                            # Environment section
+                            if project.get('environment'):
+                                env_text = f"<b>Environment:</b> {project['environment']}"
+                                content.append(Paragraph(env_text, environment_style))
+                            
+                            content.append(Spacer(1, 0.15*inch))
                 
                 # Build PDF
                 doc.build(content)
