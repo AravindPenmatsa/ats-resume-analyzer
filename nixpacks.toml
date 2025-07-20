@@ -1,6 +1,5 @@
 [phases.setup]
 nixPkgs = [
-  "python39", 
   "cairo", 
   "pango", 
   "librsvg",
@@ -13,24 +12,10 @@ nixPkgs = [
   "pixman"
 ]
 
-[phases.install]
-cmds = [
-  "pip install -r requirements.txt",
-  "python -c 'import weasyprint; print(\"WeasyPrint test import successful\")'"
-]
-
-[phases.build]
-cmds = [
-  "echo 'Setting up font cache...'",
-  "fc-cache -fv",
-  "echo 'Build phase complete'"
-]
-
 [start]
 cmd = "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
 
 [variables]
-PYTHONPATH = "/app"
 FONTCONFIG_PATH = "/nix/store/*/etc/fonts:/usr/share/fonts"
 WEASYPRINT_DPI = "96"
 PANGOCAIRO_BACKEND = "fontconfig" 
