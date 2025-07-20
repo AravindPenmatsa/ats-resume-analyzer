@@ -873,51 +873,135 @@ def generate_formatted_resume_pdf(filename: str, enhanced_text: str, user_info: 
             logging.info(f"PDF generated successfully using WeasyPrint: {output_path}")
             return output_path
         except Exception as weasyprint_error:
-            logging.warning(f"WeasyPrint failed: {weasyprint_error}. Trying xhtml2pdf as fallback...")
+            logging.warning(f"WeasyPrint failed: {weasyprint_error}. Trying ReportLab as fallback...")
             
-            # Fallback to xhtml2pdf
+            # Fallback to ReportLab (pure Python, no system dependencies)
             try:
-                from xhtml2pdf import pisa
+                from reportlab.lib.pagesizes import letter
+                from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+                from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+                from reportlab.lib.units import inch
+                from reportlab.lib import colors
+                from reportlab.lib.enums import TA_LEFT, TA_CENTER
                 
-                # Create a simplified HTML for xhtml2pdf (it's less feature-rich than WeasyPrint)
-                simplified_html = f"""
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <meta charset="UTF-8">
-                    <style>
-                        body {{ font-family: Arial, sans-serif; margin: 0.5in; line-height: 1.3; font-size: 11pt; }}
-                        .header h1 {{ margin: 0; font-size: 18pt; }}
-                        .header h2 {{ margin: 0; font-size: 12pt; font-weight: normal; }}
-                        .header p {{ margin: 2px 0; font-size: 10pt; }}
-                        .section {{ margin-top: 12px; }}
-                        .section-title {{ font-size: 12pt; font-weight: bold; color: #333; border-bottom: 1px solid #ccc; padding-bottom: 2px; margin-bottom: 6px; }}
-                        .experience-entry {{ margin-bottom: 15px; }}
-                        .project-company {{ font-weight: bold; margin: 0; }}
-                        .project-duration {{ margin: 2px 0; font-size: 10pt; font-weight: bold; }}
-                        .project-role {{ font-weight: bold; font-style: italic; margin: 2px 0 6px 0; }}
-                        .bullet-list {{ list-style-position: outside; padding-left: 20px; margin: 0; }}
-                        .bullet-list li {{ margin-bottom: 4px; }}
-                    </style>
-                </head>
-                <body>
-                    {html_content}
-                </body>
-                </html>
-                """
+                # Create PDF using ReportLab
+                doc = SimpleDocTemplate(output_path, pagesize=letter, 
+                                      rightMargin=0.75*inch, leftMargin=0.75*inch,
+                                      topMargin=0.75*inch, bottomMargin=0.75*inch)
                 
-                with open(output_path, "wb") as result_file:
-                    pisa_status = pisa.CreatePDF(simplified_html, dest=result_file)
+                styles = getSampleStyleSheet()
                 
-                if pisa_status.err:
-                    raise Exception(f"xhtml2pdf error: {pisa_status.err}")
+                # Custom styles
+                title_style = ParagraphStyle(
+                    'CustomTitle',
+                    parent=styles['Title'],
+                    fontSize=18,
+                    spaceAfter=6,
+                    alignment=TA_CENTER
+                )
                 
-                logging.info(f"PDF generated successfully using xhtml2pdf: {output_path}")
+                subtitle_style = ParagraphStyle(
+                    'CustomSubtitle',
+                    parent=styles['Normal'],
+                    fontSize=12,
+                    spaceAfter=12,
+                    alignment=TA_CENTER
+                )
+                
+                section_title_style = ParagraphStyle(
+                    'SectionTitle',
+                    parent=styles['Heading2'],
+                    fontSize=12,
+                    spaceBefore=12,
+                    spaceAfter=6,
+                    textColor=colors.HexColor('#4F81BD')
+                )
+                
+                content = []
+                
+                # Add header
+                content.append(Paragraph(resume_data['name'], title_style))
+                if resume_data.get('title'):
+                    content.append(Paragraph(resume_data['title'], subtitle_style))
+                
+                # Contact info
+                contact_parts = []
+                if resume_data.get('email'):
+                    contact_parts.append(resume_data['email'])
+                if resume_data.get('phone'):
+                    contact_parts.append(resume_data['phone'])
+                if resume_data.get('location'):
+                    contact_parts.append(resume_data['location'])
+                
+                if contact_parts:
+                    content.append(Paragraph(' | '.join(contact_parts), subtitle_style))
+                
+                content.append(Spacer(1, 0.2*inch))
+                
+                # Add sections
+                for section in resume_data['sections']:
+                    content.append(Paragraph(section['name'], section_title_style))
+                    
+                    if section['type'] == 'professional_experience':
+                        for entry in section['content']:
+                            # Company and duration
+                            header = entry.get('header', '')
+                            if '|' in header:
+                                parts = header.split('|')
+                                company = parts[0].strip()
+                                duration = parts[1].strip() if len(parts) > 1 else ''
+                            else:
+                                company = header
+                                duration = ''
+                            
+                            content.append(Paragraph(f"<b>{company}</b>", styles['Normal']))
+                            if duration:
+                                content.append(Paragraph(f"<b>{duration}</b>", styles['Normal']))
+                            if entry.get('role'):
+                                content.append(Paragraph(f"<i><b>{entry['role']}</b></i>", styles['Normal']))
+                            
+                            # Responsibilities
+                            for resp in entry.get('responsibilities', []):
+                                content.append(Paragraph(f"• {resp}", styles['Normal']))
+                            
+                            content.append(Spacer(1, 0.1*inch))
+                    
+                    elif section['type'] == 'bullets':
+                        for bullet in section['content']:
+                            content.append(Paragraph(f"• {bullet}", styles['Normal']))
+                        content.append(Spacer(1, 0.1*inch))
+                    
+                    elif section['type'] == 'plain_text_block':
+                        lines = section['content'].split('\n')
+                        for line in lines:
+                            if line.strip():
+                                content.append(Paragraph(line.strip(), styles['Normal']))
+                        content.append(Spacer(1, 0.1*inch))
+                    
+                    elif section['type'] == 'projects':
+                        for project in section['content']:
+                            header = project.get('header', [])
+                            if isinstance(header, list) and header:
+                                content.append(Paragraph(f"<b>{header[0]}</b>", styles['Normal']))
+                                if len(header) > 1:
+                                    content.append(Paragraph(f"<b>{header[-1]}</b>", styles['Normal']))
+                                if len(header) > 2:
+                                    content.append(Paragraph(f"<i><b>{header[1]}</b></i>", styles['Normal']))
+                            
+                            for resp in project.get('responsibilities', []):
+                                content.append(Paragraph(f"• {resp}", styles['Normal']))
+                            
+                            content.append(Spacer(1, 0.1*inch))
+                
+                # Build PDF
+                doc.build(content)
+                
+                logging.info(f"PDF generated successfully using ReportLab: {output_path}")
                 return output_path
                 
-            except Exception as xhtml2pdf_error:
-                logging.error(f"Both WeasyPrint and xhtml2pdf failed. WeasyPrint: {weasyprint_error}, xhtml2pdf: {xhtml2pdf_error}")
-                raise Exception("Failed to generate PDF resume. Both WeasyPrint and xhtml2pdf failed.")
+            except Exception as reportlab_error:
+                logging.error(f"Both WeasyPrint and ReportLab failed. WeasyPrint: {weasyprint_error}, ReportLab: {reportlab_error}")
+                raise Exception("Failed to generate PDF resume. Both WeasyPrint and ReportLab failed.")
         
     except Exception as e:
         logging.error(f"PDF generation failed: {e}", exc_info=True)
