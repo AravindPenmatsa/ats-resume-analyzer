@@ -117,8 +117,8 @@ else:
     logging.info("No existing cache found. A new cache will be created.")
 
 # Serve static files and HTML templates
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory=str(Path(__file__).resolve().parent.parent / "static")), name="static")
+templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
 templates.env.auto_reload = True  # ✅ force reload
 
 # Create a temporary directory for storing uploaded and generated resumes
@@ -571,56 +571,101 @@ def score_resume(resume_text: str, hard_skills, soft_skills):
     logging.info(f"Scoring complete. Final Score: {final_score}, Hard: {hard_score}, Soft: {soft_score}, Missing: {len(missing_keywords)} keywords.")
     return final_score, hard_score, soft_score, search_score, ", ".join(sorted(missing_keywords)), matched_hard, matched_soft
 
-def generate_bullet_point_from_gpt(keyword: str) -> str:
+def verify_openai_connection():
+    """Verify that OpenAI client is properly configured and working."""
     global client
     
     if client is None:
-        logging.warning("OpenAI client not configured. Returning placeholder bullet point.")
-        return f"• {keyword.title()} experience (OpenAI API key not configured)"
+        logging.error("❌ OpenAI client not initialized - API key missing or invalid")
+        return False
+    
+    try:
+        # Test with a simple API call
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": "Say 'test' in one word."}],
+            max_tokens=5,
+            temperature=0.1
+        )
+        
+        if response and response.choices and response.choices[0].message.content:
+            logging.info("✅ OpenAI client verified - API connection working")
+            return True
+        else:
+            logging.error("❌ OpenAI API returned empty response")
+            return False
+            
+    except Exception as e:
+        logging.error(f"❌ OpenAI API test failed: {e}")
+        return False
+
+def generate_project_bullet_point_from_gpt(keyword: str, variation: int = 1) -> str:
+    """Generate varied project-specific bullet points for missing keywords."""
+    global client
+    
+    if client is None:
+        logging.warning("⚠️ OpenAI client not configured. Returning placeholder bullet point.")
+        return f"• Implemented {keyword.title()} solutions in project development (OpenAI API key not configured)"
 
     keyword = keyword.strip().lower()
-
+    
+    # Use variation-specific cache key for project bullets
+    project_cache_key = f"project_{keyword}_v{variation}"
+    
     # ✅ Return cached result if available
-    if keyword in bullet_cache:
-        logging.info(f"Cache hit for keyword: '{keyword}'. Returning cached bullet point.")
-        return bullet_cache[keyword]
+    if project_cache_key in bullet_cache:
+        logging.info(f"💾 Cache hit for project keyword: '{keyword}' variation {variation}. Returning cached bullet point.")
+        return bullet_cache[project_cache_key]
 
-    logging.info(f"Cache miss for '{keyword}'. Calling GPT-4o API.")
-    prompt = (
-        f"You are a resume expert for QA automation engineers. Write 1 concise, powerful bullet point "
-        f"demonstrating real project experience using '{keyword}' (e.g., scripting, test execution, integration). "
-        f"Use strong verbs. Avoid general phrases. Limit to 30 words. Output ONLY the bullet"
-    )
+    logging.info(f"🔄 Cache miss for project keyword '{keyword}' variation {variation}. Calling GPT-4o API...")
+    
+    # Different prompts for variations to ensure diversity
+    prompts = [
+        f"Write a project bullet point showing specific implementation and development work with '{keyword}'. Focus on technical execution and results. Use action verbs. Limit to 35 words.",
+        f"Write a project bullet point highlighting optimization, integration, or enhancement achieved using '{keyword}'. Emphasize improvements and problem-solving. Limit to 35 words.",
+        f"Write a project bullet point demonstrating testing, deployment, or automation involving '{keyword}'. Focus on technical processes and quality assurance. Limit to 35 words."
+    ]
+    
+    prompt = prompts[(variation - 1) % len(prompts)]
 
     try:
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=80,
-            temperature=0.7,
+            max_tokens=90,
+            temperature=0.8,  # Higher temperature for more variation
         )
 
-        bullet = response.choices[0].message.content
-        if bullet is None:
-            logging.warning("GPT response content was null.")
-            return f"• {keyword.title()} experience (no content received)"
-        bullet = bullet.strip()
+        if not response or not response.choices or not response.choices[0].message.content:
+            logging.warning(f"⚠️ GPT returned empty response for keyword '{keyword}' variation {variation}")
+            return f"• Implemented {keyword.title()} solutions to enhance project functionality (empty response)"
+
+        bullet = response.choices[0].message.content.strip()
 
         # ✅ Ensure bullet formatting
         if not bullet.startswith("•"):
             bullet = "• " + bullet
 
         # ✅ Cache and return
-        logging.info(f"Successfully generated bullet for '{keyword}'. Caching result.")
-        bullet_cache[keyword] = bullet
-        with open(CACHE_PATH, "w", encoding="utf-8") as f:
-            json.dump(bullet_cache, f, indent=2)
+        logging.info(f"✅ Successfully generated project bullet for '{keyword}' variation {variation}. Caching result.")
+        bullet_cache[project_cache_key] = bullet
+        
+        try:
+            with open(CACHE_PATH, "w", encoding="utf-8") as f:
+                json.dump(bullet_cache, f, indent=2)
+        except Exception as cache_error:
+            logging.warning(f"⚠️ Failed to save cache: {cache_error}")
 
         return bullet
 
     except Exception as e:
-        logging.error(f"❌ GPT API Exception for keyword '{keyword}': {e}", exc_info=True)
-        return f"• {keyword.title()} experience (could not fetch GPT response)"
+        logging.error(f"❌ GPT API Exception for keyword '{keyword}' variation {variation}: {e}")
+        
+        # Verify if it's an API key issue
+        if "api" in str(e).lower() and ("key" in str(e).lower() or "auth" in str(e).lower()):
+            logging.error("❌ This appears to be an API key authentication issue!")
+            
+        return f"• Implemented {keyword.title()} solutions to enhance project functionality (API error: {str(e)[:50]})"
 
 def generate_summary_bullet_from_gpt(keyword: str, variation: int = 1) -> str:
     """Generate varied bullet points for Profile/Professional Summary section."""
@@ -680,101 +725,6 @@ def generate_summary_bullet_from_gpt(keyword: str, variation: int = 1) -> str:
     except Exception as e:
         logging.error(f"❌ GPT API Exception for summary keyword '{keyword}' variation {variation}: {e}", exc_info=True)
         return f"• Experienced with {keyword.title()} technologies and methodologies (could not fetch GPT response)"
-
-def generate_project_bullet_point_from_gpt(keyword: str, variation: int = 1) -> str:
-    """Generate varied project-specific bullet points for missing keywords."""
-    global client
-    
-    if client is None:
-        logging.warning("OpenAI client not configured. Returning placeholder bullet point.")
-        return f"• Implemented {keyword.title()} solutions in project development (OpenAI API key not configured)"
-
-    keyword = keyword.strip().lower()
-    
-    # Use variation-specific cache key for project bullets
-    project_cache_key = f"project_{keyword}_v{variation}"
-    
-    # ✅ Return cached result if available
-    if project_cache_key in bullet_cache:
-        logging.info(f"Cache hit for project keyword: '{keyword}' variation {variation}. Returning cached bullet point.")
-        return bullet_cache[project_cache_key]
-
-    logging.info(f"Cache miss for project keyword '{keyword}' variation {variation}. Calling GPT-4o API.")
-    
-    # Different prompts for variations to ensure diversity
-    prompts = [
-        f"Write a project bullet point showing specific implementation and development work with '{keyword}'. Focus on technical execution and results. Use action verbs. Limit to 35 words.",
-        f"Write a project bullet point highlighting optimization, integration, or enhancement achieved using '{keyword}'. Emphasize improvements and problem-solving. Limit to 35 words.",
-        f"Write a project bullet point demonstrating testing, deployment, or automation involving '{keyword}'. Focus on technical processes and quality assurance. Limit to 35 words."
-    ]
-    
-    prompt = prompts[(variation - 1) % len(prompts)]
-
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=90,
-            temperature=0.8,  # Higher temperature for more variation
-        )
-
-        bullet = response.choices[0].message.content
-        if bullet is None:
-            logging.warning("GPT response content was null.")
-            return f"• Implemented {keyword.title()} solutions to enhance project functionality (no content received)"
-        bullet = bullet.strip()
-
-        # ✅ Ensure bullet formatting
-        if not bullet.startswith("•"):
-            bullet = "• " + bullet
-
-        # ✅ Cache and return
-        logging.info(f"Successfully generated project bullet for '{keyword}' variation {variation}. Caching result.")
-        bullet_cache[project_cache_key] = bullet
-        with open(CACHE_PATH, "w", encoding="utf-8") as f:
-            json.dump(bullet_cache, f, indent=2)
-
-        return bullet
-
-    except Exception as e:
-        logging.error(f"❌ GPT API Exception for project keyword '{keyword}' variation {variation}: {e}", exc_info=True)
-        return f"• Implemented {keyword.title()} solutions to enhance project functionality (could not fetch GPT response)"
-        
-# Save optimized resume with suggestions into a downloadable file
-def save_optimized_resume(filename: str, resume_text: str, suggestions: str) -> str:
-    base_name = os.path.splitext(filename)[0]
-    output_path = os.path.join(GENERATED_DIR, f"{base_name}_optimized.pdf")
-    logging.info(f"Saving optimized resume to {output_path}")
-
-    # Use WeasyPrint to generate a PDF with the resume text and suggestions
-    try:
-        from weasyprint import HTML
-        html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <style>
-                body {{ font-family: Calibri, Arial, sans-serif; margin: 0.7in; line-height: 1.2; font-size: 11pt; }}
-                h1 {{ font-size: 14pt; }}
-                h2 {{ font-size: 12pt; }}
-            </style>
-        </head>
-        <body>
-            <h1>Optimized Resume Content</h1>
-            <pre>{resume_text}</pre>
-            <h2>Suggestions</h2>
-            <p>{suggestions}</p>
-        </body>
-        </html>
-        """
-        if 'darwin' in str(sys.platform):
-            os.environ['DYLD_LIBRARY_PATH'] = '/opt/homebrew/lib:' + os.environ.get('DYLD_LIBRARY_PATH', '')
-        HTML(string=html_content).write_pdf(output_path)
-        logging.info("Optimized resume PDF saved successfully.")
-        return output_path
-    except Exception as e:
-        logging.error(f"Failed to save optimized resume PDF: {e}", exc_info=True)
-        raise Exception("PDF generation failed. Please ensure WeasyPrint is properly installed and configured.")
 
 def generate_resume_html(resume_data: dict) -> str:
     template = """
@@ -997,13 +947,23 @@ def generate_resume_html(resume_data: dict) -> str:
 
 # Modified to ensure PDF-only output
 def generate_formatted_resume_pdf(filename: str, enhanced_text: str, user_info: dict) -> str:
-    """Generate PDF resume using HTML template, enforcing PDF output."""
+    """
+    Generate a professionally formatted resume PDF with enhanced content.
+    """
+    
+    # Parse the enhanced text into structured data
+    resume_data = parse_resume_to_structure(enhanced_text, user_info)
+    
+    # Generate HTML content first
+    html_content = generate_resume_html(resume_data)
+    
+    # CRITICAL: Apply comprehensive cleanup to the HTML content to fix all formatting issues
+    logging.info("🧹 Applying comprehensive formatting fixes to HTML content...")
+    html_content = clean_resume_formatting_issues(html_content)
+    html_content = clean_professional_experience_bullets(html_content)
+    
     logging.info("Attempting to generate PDF resume.")
     try:
-        # Parse resume data using user_info
-        resume_data = parse_resume_to_structure(enhanced_text, user_info)
-        html_content = generate_resume_html(resume_data)
-        
         # Set library path for macOS if necessary
         if 'darwin' in str(sys.platform):
             os.environ['DYLD_LIBRARY_PATH'] = '/opt/homebrew/lib:' + os.environ.get('DYLD_LIBRARY_PATH', '')
@@ -1026,7 +986,7 @@ def generate_formatted_resume_pdf(filename: str, enhanced_text: str, user_info: 
             except Exception as test_error:
                 logging.warning(f"WeasyPrint test failed: {test_error}")
             
-            # Generate actual PDF
+            # Generate actual PDF using cleaned HTML content
             HTML(string=html_content).write_pdf(output_path)
             logging.info(f"✅ PDF generated successfully using WeasyPrint: {output_path}")
             return output_path
@@ -1341,18 +1301,45 @@ async def upload_resume(
 
         download_link = None
         if generate_download.lower() == "yes":
-            logging.info("Download requested. Generating enhanced resume PDF.")
+            logging.info("📥 Download requested. Generating enhanced resume PDF.")
+            
             # Get missing keywords for GPT enhancement
             resume_words = set(resume_text.lower().split())
             missing_hard_skills = hard_skills - resume_words
             missing_soft_skills = soft_skills - resume_words
             missing_keywords = missing_hard_skills.union(missing_soft_skills)
             
-            logging.info(f"Found {len(missing_keywords)} missing keywords for enhancement: {list(missing_keywords)[:5]}...")
-            enhanced_text = enhance_resume_text(resume_text, missing_keywords)
+            logging.info(f"🔍 Analysis complete:")
+            logging.info(f"   📊 Hard skills in JD: {len(hard_skills)}")
+            logging.info(f"   📊 Soft skills in JD: {len(soft_skills)}")
+            logging.info(f"   📊 Missing hard skills: {len(missing_hard_skills)} - {list(missing_hard_skills)[:10]}")
+            logging.info(f"   📊 Missing soft skills: {len(missing_soft_skills)} - {list(missing_soft_skills)[:10]}")
+            logging.info(f"   🎯 Total missing keywords for GPT: {len(missing_keywords)}")
+            
+            if missing_keywords:
+                logging.info(f"🤖 Starting GPT enhancement for missing keywords...")
+                enhanced_text = enhance_resume_text(resume_text, missing_keywords)
+                
+                # Verify enhancement worked
+                original_length = len(resume_text)
+                enhanced_length = len(enhanced_text)
+                length_increase = enhanced_length - original_length
+                
+                logging.info(f"📈 Text length: {original_length} → {enhanced_length} (+{length_increase} chars)")
+                
+                if length_increase > 100:  # Should have significant increase if bullets were added
+                    logging.info("✅ GPT enhancement appears successful - significant text increase detected")
+                else:
+                    logging.warning(f"⚠️ GPT enhancement may have failed - only {length_increase} character increase")
+            else:
+                logging.info("ℹ️ No missing keywords found - no GPT enhancement needed")
+                enhanced_text = resume_text
+            
+            # Generate PDF with enhanced text
+            logging.info("📄 Generating formatted PDF...")
             output_path = generate_formatted_resume_pdf(filename, enhanced_text, user_info)
             download_link = f"/download/{os.path.basename(output_path)}"
-            logging.info(f"Download link created: {download_link}")
+            logging.info(f"✅ Download link created: {download_link}")
 
         return templates.TemplateResponse("index.html", {
             "request": request,
@@ -1620,17 +1607,24 @@ def parse_technical_skills(content_lines: list) -> str:
             not stripped_line.startswith('•') and
             stripped_line[0].isupper() and
             not any(tech in stripped_line for tech in ['Java', 'Python', 'React', 'Angular', 'AWS', 'Docker'])):  # Avoid common tech names
+            
+            # This is a category - save it for the next skills line
             current_category = stripped_line
         else:
             # This is likely the skills list for the category
             if current_category:
+                # Format as "Category: skills"
                 formatted_lines.append(f"{current_category}: {stripped_line}")
                 current_category = None
             else:
-                # If no category was found, just add the line as is
-                formatted_lines.append(stripped_line)
+                # If no category was found, check if the line already has a colon (is already formatted)
+                if ':' in stripped_line:
+                    formatted_lines.append(stripped_line)
+                else:
+                    # Just add the line as is
+                    formatted_lines.append(stripped_line)
     
-    # Handle case where last line was a category with no value
+    # Handle case where last line was a category with no value - add it as a standalone line
     if current_category:
         formatted_lines.append(current_category)
     
@@ -2392,98 +2386,659 @@ def generate_profile_summary(job_title: str, skills: set) -> str:
     return summary
 
 def enhance_resume_text(resume_text: str, missing_keywords: set) -> str:
-    logging.info(f"Enhancing resume text with {len(missing_keywords)} missing keywords.")
+    """
+    Enhance resume by adding bullet points for missing keywords in the current job/project.
+    """
+    
+    # Note: Cleanup functions will be applied later in generate_formatted_resume_pdf after all processing
     
     if not missing_keywords:
-        logging.info("No missing keywords to enhance.")
+        logging.info("No missing keywords to enhance")
         return resume_text
     
-    # Validate that we have the required sections
-    has_projects = bool(re.search(r'PROJECTS\s*\n', resume_text, re.IGNORECASE))
+    # Limit the number of keywords to enhance (prevent too many additions)
+    max_keywords = 5
+    limited_keywords = list(missing_keywords)[:max_keywords]
     
-    if not has_projects:
-        logging.warning("No Projects section found. Cannot enhance first project.")
+    logging.info(f"🎯 Starting resume enhancement for {len(limited_keywords)} missing keywords: {limited_keywords}")
+    
+    # Find the most recent position (current job/project) to add keywords
+    lines = resume_text.split('\n')
+    target_section = None
+    
+    # Check for both sections and prioritize based on content
+    has_projects = any('PROJECT' in line.upper() for line in lines)
+    has_professional_experience = any('PROFESSIONAL EXPERIENCE' in line.upper() for line in lines)
+    
+    # Determine target section based on what's available
+    if has_projects:
+        target_section = "PROJECTS"
+        logging.info("🎯 Target: Adding keywords to PROJECTS section (current project)")
+    elif has_professional_experience:
+        target_section = "PROFESSIONAL EXPERIENCE" 
+        logging.info("🎯 Target: Adding keywords to PROFESSIONAL EXPERIENCE section (current position)")
+    else:
+        logging.warning("❌ No suitable section found for keyword enhancement")
         return resume_text
-        
-    # Give ALL keywords to the first project (current job)
+    
+    # Generate targeted bullets for current project with missing keywords
     keywords_list = list(missing_keywords)
     
-    # Generate 3 bullet points for each missing skill in first project (current job)
-    first_project_bullets = []
+    # Generate focused bullet points for current project
+    current_project_bullets = []
+    processed_keywords = set()  # Track which keywords we've already processed
+    
     if keywords_list:
-        logging.info(f"Generating 3 bullet points each for {len(keywords_list)} skills in first project (current job)...")
-        for keyword in keywords_list:
-            # Generate 3 different project-specific bullet points for each skill
-            for i in range(3):
-                project_bullet = generate_project_bullet_point_from_gpt(keyword, i+1).lstrip("•- ").strip()
-                if project_bullet:
-                    first_project_bullets.append(f"• {project_bullet}")
+        # Limit to maximum 5 bullets total to avoid overwhelming the resume  
+        max_keywords = min(len(keywords_list), 5)
+        limited_keywords = keywords_list[:max_keywords]
+        
+        logging.info(f"🎯 Generating targeted bullet points for {target_section} with keywords: {limited_keywords}")
+        
+        for i, keyword in enumerate(limited_keywords, 1):
+            # Skip if we've already successfully processed this keyword
+            if keyword in processed_keywords:
+                logging.info(f"⏭️ Skipping already processed keyword: '{keyword}'")
+                continue
+            
+            # Hard limit: only allow one bullet per keyword
+            if len(current_project_bullets) >= len(limited_keywords):
+                logging.info(f"🛑 Reached maximum bullets ({len(limited_keywords)}), stopping")
+                break
+                
+            logging.info(f"🔄 Processing keyword {i}/{len(limited_keywords)}: '{keyword}'")
+            
+            success = False
+            try:
+                # Generate bullet point for this specific keyword
+                project_bullet = generate_project_bullet_point_from_gpt(keyword, 1).lstrip("•- ").strip()
+                logging.info(f"🤖 Generated raw bullet for '{keyword}': {project_bullet[:100]}...")
+                
+                # Validate bullet content before adding
+                if project_bullet and len(project_bullet) > 15:  # Ensure meaningful content
+                    # Ensure the keyword is actually mentioned in the bullet point
+                    if keyword.lower() in project_bullet.lower():
+                        formatted_bullet = f"• {project_bullet}"
+                        current_project_bullets.append(formatted_bullet)
+                        processed_keywords.add(keyword)  # Mark as processed
+                        success = True
+                        logging.info(f"✅ Added bullet for '{keyword}' to {target_section}: {project_bullet[:60]}...")
+                    else:
+                        logging.warning(f"⚠️ Generated bullet for '{keyword}' doesn't contain the keyword - regenerating...")
+                        # Try once more with explicit keyword inclusion
+                        project_bullet = generate_project_bullet_point_from_gpt(f"{keyword} technology", 1).lstrip("•- ").strip()
+                        if keyword.lower() in project_bullet.lower() and len(project_bullet) > 15:
+                            formatted_bullet = f"• {project_bullet}"
+                            current_project_bullets.append(formatted_bullet)
+                            processed_keywords.add(keyword)  # Mark as processed
+                            success = True
+                            logging.info(f"✅ Added regenerated bullet for '{keyword}': {project_bullet[:60]}...")
+                        else:
+                            logging.warning(f"❌ Failed to generate valid bullet for '{keyword}' after retry")
+                else:
+                    logging.warning(f"⚠️ Generated bullet for '{keyword}' was too short ({len(project_bullet)} chars) - skipping")
+                    
+            except Exception as e:
+                logging.error(f"❌ Exception generating bullet for '{keyword}': {e}")
+                import traceback
+                logging.error(f"Full traceback: {traceback.format_exc()}")
+            
+            # Ensure we only process each keyword once
+            if success:
+                logging.info(f"🎯 Successfully processed '{keyword}' - moving to next keyword")
+            else:
+                logging.warning(f"⚠️ Failed to process '{keyword}' - moving to next keyword")
+        
+        # Summary of what was generated
+        logging.info(f"📊 SUMMARY: Generated {len(current_project_bullets)} bullets for {target_section}")
+        for i, bullet in enumerate(current_project_bullets, 1):
+            # Extract which keyword this bullet is for
+            bullet_text = bullet.lower()
+            matched_keywords = [kw for kw in limited_keywords if kw.lower() in bullet_text]
+            logging.info(f"   {i}. Keywords {matched_keywords}: {bullet[:80]}...")
 
+    if not current_project_bullets:
+        logging.warning(f"❌ No GPT bullets were generated for {target_section}. Returning original text.")
+        logging.warning(f"❌ Original missing keywords were: {list(missing_keywords)}")
+        return resume_text
+
+    logging.info(f"🎯 Total bullets to add to {target_section}: {len(current_project_bullets)}")
     updated_text = resume_text
     
-    # Enhance ONLY the first project in PROJECTS section (current job)
-    if first_project_bullets:
-        logging.info(f"Adding {len(first_project_bullets)} GPT bullets to current project...")
+    # Enhance ONLY the current project/position with missing keyword bullets
+    if current_project_bullets:
+        logging.info(f"📝 Adding {len(current_project_bullets)} targeted bullets to {target_section}...")
         
-        # Find the PROJECTS section
-        projects_start = re.search(r'PROJECTS\s*\n', updated_text, re.IGNORECASE)
+        # Find the target section with more flexible pattern
+        section_pattern = rf'{re.escape(target_section)}'
+        section_start = re.search(section_pattern, updated_text, re.IGNORECASE)
         
-        if projects_start:
+        if section_start:
+            logging.info(f"✅ Found {target_section} section at position {section_start.start()}")
             try:
-                # Get the position after "PROJECTS" heading
-                projects_start_pos = projects_start.end()
+                # Find the end of the line containing the section heading
+                section_line_start = section_start.start()
+                section_line_end = updated_text.find('\n', section_line_start)
+                if section_line_end == -1:
+                    section_line_end = len(updated_text)
+                section_start_pos = section_line_end + 1  # Position after the newline
                 
-                # Find the text after PROJECTS section
-                after_projects = updated_text[projects_start_pos:]
-                lines = after_projects.split('\n')
+                # Find the text after the target section
+                after_section = updated_text[section_start_pos:]
+                lines = after_section.split('\n')
                 
-                # Find where to insert bullets - after existing bullet points in first project
+                logging.info(f"📄 Found {len(lines)} lines in {target_section} section")
+                
+                # Smart insertion: Find the end of the CURRENT project/position bullets
                 insert_position = 0
-                found_bullets = False
+                current_entry_bullets_ended = False
+                in_current_entry = False
+                header_lines_seen = 0
                 
-                # Look for existing bullet points (• or - at start of line)
                 for i, line in enumerate(lines):
                     stripped_line = line.strip()
-                    if stripped_line.startswith('•') or stripped_line.startswith('-') or stripped_line.startswith('*'):
-                        found_bullets = True
-                        insert_position = i + 1  # Insert after this bullet
-                    elif found_bullets and stripped_line and not stripped_line.startswith('•') and not stripped_line.startswith('-') and not stripped_line.startswith('*'):
-                        # We've found the end of bullet points
-                        break
-                    elif not stripped_line:
-                        # Empty line - might be end of bullets or spacing
-                        if found_bullets:
-                            insert_position = i
-                
-                # If no bullets found, insert after first few non-empty lines (header info)
-                if not found_bullets:
-                    header_lines = 0
-                    for i, line in enumerate(lines):
-                        stripped_line = line.strip()
-                        if stripped_line:
-                            header_lines += 1
-                            if header_lines >= 3:  # After company, role, date info
-                                insert_position = i + 1
+                    
+                    # Skip empty lines
+                    if not stripped_line:
+                        continue
+                    
+                    # Count header lines (company, role, dates) to identify current entry
+                    if not in_current_entry and header_lines_seen < 3:
+                        header_lines_seen += 1
+                        if header_lines_seen >= 2:  # After company and role
+                            in_current_entry = True
+                            logging.info(f"📋 Identified {target_section} around line {i}")
+                        continue
+                    
+                    # We're in the current project/position area
+                    if in_current_entry:
+                        # If this is a bullet point, we're still in the current entry's bullets
+                        if stripped_line.startswith('•') or stripped_line.startswith('-') or stripped_line.startswith('*'):
+                            insert_position = i + 1  # Keep updating to insert after the last bullet
+                            logging.info(f"📌 Found existing bullet in {target_section} at line {i}: {stripped_line[:40]}...")
+                        # If this looks like a new job/section (company name, dates, etc), stop
+                        elif (any(indicator in stripped_line.lower() for indicator in ['limited', 'ltd', 'inc', 'corp', 'pvt', 'technologies', 'systems']) or
+                              re.search(r'\d{4}.*\d{4}|\w{3}\s+\d{4}', stripped_line) or  # Date patterns
+                              stripped_line.isupper() and len(stripped_line.split()) <= 4):  # Section headers
+                            logging.info(f"🛑 Detected end of {target_section} at line {i}: {stripped_line[:40]}...")
+                            current_entry_bullets_ended = True
+                            break
+                        # If we found bullets before and now see non-bullet content, it might be the end
+                        elif insert_position > 0:
+                            # Allow a few non-bullet lines (like "Environment:" or spacing)
+                            if not any(word in stripped_line.lower() for word in ['environment', 'tools', 'technologies']):
+                                logging.info(f"🛑 End of {target_section} bullets detected at line {i}")
+                                current_entry_bullets_ended = True
                                 break
                 
-                # Insert the GPT bullets
-                enhanced_lines = (
-                    lines[:insert_position] +
-                    [''] +  # Add empty line before GPT bullets
-                    first_project_bullets +
-                    lines[insert_position:]
-                )
+                # Validate and adjust insertion position
+                if insert_position == 0:
+                    # Find a safe position after header information
+                    safe_position = 0
+                    for i, line in enumerate(lines[:10]):  # Look at first 10 lines only
+                        if line.strip() and not line.strip().startswith('•'):
+                            safe_position = i + 1
+                        if i >= 2:  # After at least 3 lines
+                            break
+                    insert_position = safe_position
+                    logging.info(f"⚠️ No existing bullets found in {target_section}, inserting after header at position {insert_position}")
+                else:
+                    # Ensure we're not inserting in the middle of existing content
+                    while (insert_position < len(lines) and 
+                           lines[insert_position].strip() and 
+                           not lines[insert_position].strip().startswith('•') and
+                           len(lines[insert_position].strip()) < 50):  # Skip short lines that might be headers
+                        insert_position += 1
+                    logging.info(f"✅ Will insert keyword bullets at position {insert_position} (after {target_section} existing bullets)")
+                
+                # Validate that we have meaningful bullets to insert
+                if not current_project_bullets:
+                    logging.warning(f"⚠️ No valid bullets to insert for {target_section}")
+                    return resume_text
+                
+                logging.info(f"📍 Inserting {len(current_project_bullets)} validated bullets at position {insert_position}")
+                logging.info(f"📍 Context around insertion point:")
+                context_start = max(0, insert_position - 2)
+                context_end = min(len(lines), insert_position + 3)
+                for i in range(context_start, context_end):
+                    marker = " >>> INSERT HERE <<<" if i == insert_position else ""
+                    line_text = lines[i] if i < len(lines) else "[END]"
+                    logging.info(f"   Line {i}: {line_text[:60]}...{marker}")
+                
+                # Insert the current project bullets cleanly with proper spacing
+                enhanced_lines = lines[:insert_position]
+                
+                # Add the new bullets with clear marking
+                logging.info(f"📝 Adding {len(current_project_bullets)} bullets for missing keywords:")
+                for i, bullet in enumerate(current_project_bullets):
+                    enhanced_lines.append(bullet)
+                    logging.info(f"   Added: {bullet[:70]}...")
+                
+                # Add remaining lines
+                enhanced_lines.extend(lines[insert_position:])
                 
                 # Reconstruct the text
-                enhanced_after_projects = '\n'.join(enhanced_lines)
-                updated_text = updated_text[:projects_start_pos] + enhanced_after_projects
+                enhanced_after_section = '\n'.join(enhanced_lines)
+                updated_text = updated_text[:section_start_pos] + enhanced_after_section
                 
-                logging.info(f"Successfully enhanced first project with {len(first_project_bullets)} bullet points.")
+                # Clean up any empty bullet points that might have been created
+                updated_text = re.sub(r'\n\s*•\s*\n', '\n', updated_text)  # Remove empty bullets
+                updated_text = re.sub(r'\n\s*•\s*$', '\n', updated_text, flags=re.MULTILINE)  # Remove trailing empty bullets
+                updated_text = re.sub(r'^\s*•\s*\n', '', updated_text, flags=re.MULTILINE)  # Remove leading empty bullets
+                
+                logging.info("🧹 Cleaned up any empty bullet points")
+                
+                # Verify the enhancement
+                original_bullet_count = resume_text.count('•')
+                enhanced_bullet_count = updated_text.count('•')
+                added_bullets = enhanced_bullet_count - original_bullet_count
+                
+                logging.info(f"✅ {target_section.title()} enhancement complete! Original bullets: {original_bullet_count}, Enhanced bullets: {enhanced_bullet_count}, Added: {added_bullets}")
+                
+                if added_bullets != len(current_project_bullets):
+                    logging.warning(f"⚠️ Mismatch: Expected to add {len(current_project_bullets)} bullets to {target_section}, but only added {added_bullets}")
+                
+                # Verify missing keywords are now included
+                enhanced_lower = updated_text.lower()
+                found_keywords = []
+                still_missing = []
+                
+                for keyword in missing_keywords:
+                    if keyword.lower() in enhanced_lower:
+                        found_keywords.append(keyword)
+                    else:
+                        still_missing.append(keyword)
+                
+                logging.info(f"🔍 Keyword verification:")
+                logging.info(f"   ✅ Found in enhanced resume: {found_keywords}")
+                if still_missing:
+                    logging.warning(f"   ❌ Still missing: {still_missing}")
+                else:
+                    logging.info(f"   🎉 All missing keywords successfully added!")
                 
             except Exception as e:
-                logging.error(f"Failed to enhance first project: {e}")
+                logging.error(f"❌ Failed to enhance {target_section} in {target_section}: {e}")
+                import traceback
+                logging.error(f"Full error: {traceback.format_exc()}")
+                return resume_text
         else:
-            logging.warning("PROJECTS section not found. No project enhancement performed.")
+            logging.warning(f"❌ {target_section} section not found during enhancement.")
+            # Debug: Show what sections we can find
+            all_lines = updated_text.split('\n')
+            section_lines = [line.strip() for line in all_lines if line.strip() and line.strip().isupper()]
+            logging.warning(f"📋 Available sections detected: {section_lines[:10]}")
+            # Try alternative patterns
+            for pattern in ["PROFESSIONAL EXPERIENCE", "EXPERIENCE", "PROJECTS", "PROJECT"]:
+                if pattern.upper() in updated_text.upper():
+                    logging.warning(f"🔍 Found alternative section '{pattern}' in text")
+                    break
+            logging.warning("❌ No enhancement performed.")
+            return resume_text
 
-    logging.info("Resume text enhanced successfully.")
+    # Count final bullets for verification
+    enhanced_bullet_count = len(re.findall(r'^\s*•', updated_text, re.MULTILINE))
+    logging.info(f"✅ Enhancement complete. Total bullets in enhanced resume: {enhanced_bullet_count}")
+    
+    logging.info(f"🎉 {target_section.title()} enhancement completed successfully with missing keyword bullets!")
     return updated_text
+
+def generate_bullet_point_from_gpt(keyword: str) -> str:
+    global client
+    
+    if client is None:
+        logging.warning("OpenAI client not configured. Returning placeholder bullet point.")
+        return f"• {keyword.title()} experience (OpenAI API key not configured)"
+
+    keyword = keyword.strip().lower()
+
+    # ✅ Return cached result if available
+    if keyword in bullet_cache:
+        logging.info(f"Cache hit for keyword: '{keyword}'. Returning cached bullet point.")
+        return bullet_cache[keyword]
+
+    logging.info(f"Cache miss for '{keyword}'. Calling GPT-4o API.")
+    prompt = (
+        f"You are a resume expert for QA automation engineers. Write 1 concise, powerful bullet point "
+        f"demonstrating real project experience using '{keyword}' (e.g., scripting, test execution, integration). "
+        f"Use strong verbs. Avoid general phrases. Limit to 30 words. Output ONLY the bullet"
+    )
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=80,
+            temperature=0.7,
+        )
+
+        bullet = response.choices[0].message.content
+        if bullet is None:
+            logging.warning("GPT response content was null.")
+            return f"• {keyword.title()} experience (no content received)"
+        bullet = bullet.strip()
+
+        # ✅ Ensure bullet formatting
+        if not bullet.startswith("•"):
+            bullet = "• " + bullet
+
+        # ✅ Cache and return
+        logging.info(f"Successfully generated bullet for '{keyword}'. Caching result.")
+        bullet_cache[keyword] = bullet
+        with open(CACHE_PATH, "w", encoding="utf-8") as f:
+            json.dump(bullet_cache, f, indent=2)
+
+        return bullet
+
+    except Exception as e:
+        logging.error(f"❌ GPT API Exception for keyword '{keyword}': {e}", exc_info=True)
+        return f"• {keyword.title()} experience (could not fetch GPT response)"
+
+# Save optimized resume with suggestions into a downloadable file
+def save_optimized_resume(filename: str, resume_text: str, suggestions: str) -> str:
+    base_name = os.path.splitext(filename)[0]
+    output_path = os.path.join(GENERATED_DIR, f"{base_name}_optimized.pdf")
+    logging.info(f"Saving optimized resume to {output_path}")
+
+    # Use WeasyPrint to generate a PDF with the resume text and suggestions
+    try:
+        from weasyprint import HTML
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Calibri, Arial, sans-serif; margin: 0.7in; line-height: 1.2; font-size: 11pt; }}
+                h1 {{ font-size: 14pt; }}
+                h2 {{ font-size: 12pt; }}
+            </style>
+        </head>
+        <body>
+            <h1>Optimized Resume Content</h1>
+            <pre>{resume_text}</pre>
+            <h2>Suggestions</h2>
+            <p>{suggestions}</p>
+        </body>
+        </html>
+        """
+        if 'darwin' in str(sys.platform):
+            os.environ['DYLD_LIBRARY_PATH'] = '/opt/homebrew/lib:' + os.environ.get('DYLD_LIBRARY_PATH', '')
+        HTML(string=html_content).write_pdf(output_path)
+        logging.info("Optimized resume PDF saved successfully.")
+        return output_path
+    except Exception as e:
+        logging.error(f"Failed to save optimized resume PDF: {e}", exc_info=True)
+        raise Exception("PDF generation failed. Please ensure WeasyPrint is properly installed and configured.")
+
+# Verify OpenAI connection at startup
+if verify_openai_connection():
+    logging.info("🚀 All systems ready - OpenAI GPT enhancement fully operational!")
+else:
+    logging.warning("⚠️ OpenAI verification failed - GPT enhancement may not work properly")
+
+# For local development
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=False)
+
+def clean_resume_formatting_issues(resume_text: str) -> str:
+    """
+    Clean up specific formatting issues in the resume text or HTML content.
+    """
+    logging.info("🧹 Cleaning up resume formatting issues...")
+    
+    # Detect if this is HTML content
+    is_html = '<html>' in resume_text or '<div>' in resume_text or '<p>' in resume_text
+    
+    if is_html:
+        # For HTML content, we need to clean up the text within HTML tags
+        
+        # Fix 0: CRITICAL - Remove empty bullet points from HTML
+        # Pattern: <li>•</li> or <li> • </li> or similar
+        resume_text = re.sub(r'<li[^>]*>\s*•\s*</li>', '', resume_text)
+        resume_text = re.sub(r'<li[^>]*>\s*</li>', '', resume_text)  # Completely empty list items
+        
+        # Fix 1: Remove empty paragraphs with just bullets
+        resume_text = re.sub(r'<p[^>]*>\s*•\s*</p>', '', resume_text)
+        
+        # Fix 2: Clean up Redis: Package Manager: pattern in HTML
+        resume_text = re.sub(r'Redis:\s*</[^>]+>\s*<[^>]+>\s*Package Manager:', 'Redis Package Manager:', resume_text)
+        
+        # Fix 3: Remove excessive empty elements
+        resume_text = re.sub(r'<p[^>]*>\s*</p>', '', resume_text)  # Empty paragraphs
+        resume_text = re.sub(r'<div[^>]*>\s*</div>', '', resume_text)  # Empty divs
+        
+        logging.info("✅ HTML formatting cleanup completed")
+        return resume_text
+    
+    # Original text-based cleanup for non-HTML content
+    # Fix 0: CRITICAL - Remove massive empty bullet point spam (this is the major issue!)
+    # Remove lines that are ONLY bullets with optional whitespace
+    lines = resume_text.split('\n')
+    cleaned_lines = []
+    
+    for line in lines:
+        stripped = line.strip()
+        # Skip lines that are just bullets with nothing else
+        if stripped == '•' or stripped == '• ' or stripped == ' •' or not stripped:
+            logging.info("🔧 Removed empty bullet point")
+            continue
+        cleaned_lines.append(line)
+    
+    resume_text = '\n'.join(cleaned_lines)
+    
+    # Fix 1: Clean up duplicate company names in Professional Experience
+    lines = resume_text.split('\n')
+    cleaned_lines = []
+    i = 0
+    
+    while i < len(lines):
+        current_line = lines[i]
+        
+        # Special handling for Professional Experience company duplicates
+        if i + 2 < len(lines):
+            line1 = lines[i].strip()
+            line2 = lines[i + 1].strip() if i + 1 < len(lines) else ""
+            line3 = lines[i + 2].strip() if i + 2 < len(lines) else ""
+            line4 = lines[i + 3].strip() if i + 3 < len(lines) else ""
+            
+            # Check if line1 has company info without complete date
+            if (re.search(r'[A-Za-z\s]+,\s*[A-Za-z\s]+,\s*[A-Z]{2}\s+\w+\s+\d{4}$', line1) and
+                re.match(r'^[–-]\s*\w+\s+\d{4},?$', line2)):
+                
+                # Check if line3 is a duplicate of the combined pattern
+                if line3.startswith(line1) and re.search(r'\d{4}\s*[–-]\s*\w+\s+\d{4},?$', line3):
+                    # Skip the duplicate lines
+                    cleaned_lines.append(lines[i])  # Keep original line1
+                    cleaned_lines.append(lines[i + 1])  # Keep original line2
+                    # Skip line3 (duplicate)
+                    if line4:  # Add line4 if it exists (likely the additional date range)
+                        cleaned_lines.append(line4)
+                    logging.info(f"🔧 Removed duplicate company entry: {line3[:50]}...")
+                    i += 4  # Skip past all processed lines
+                    continue
+        
+        # Also check for same-line duplicates
+        if i + 1 < len(lines):
+            line = lines[i].strip()
+            next_line = lines[i + 1].strip()
+            
+            # Check for duplicate company pattern on consecutive lines
+            if (line and next_line and 
+                re.search(r'\w+\s+\d{4}\s*[–-]\s*\w+\s+\d{4},?\s*$', line) and
+                next_line.startswith(line.rstrip(',')) and
+                line != next_line):
+                # Keep only the first line, skip the duplicate
+                cleaned_lines.append(lines[i])
+                logging.info(f"🔧 Removed duplicate company line: {next_line[:50]}...")
+                i += 2  # Skip the duplicate line
+                continue
+        
+        cleaned_lines.append(lines[i])
+        i += 1
+    
+    resume_text = '\n'.join(cleaned_lines)
+    
+    # Fix 2: Clean up ALL duplicate Environment sections (there are 7 of them!)
+    lines = resume_text.split('\n')
+    cleaned_lines = []
+    environment_content = []
+    
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        
+        if line.startswith('Environment:'):
+            # Collect all Environment lines
+            env_content = line[len('Environment:'):].strip()
+            if env_content and env_content not in environment_content:
+                environment_content.append(env_content)
+            
+            # Skip subsequent Environment lines within a reasonable distance
+            j = i + 1
+            while j < len(lines) and j < i + 10:  # Look ahead max 10 lines
+                if lines[j].startswith('Environment:'):
+                    next_env = lines[j][len('Environment:'):].strip()
+                    if next_env and next_env not in environment_content:
+                        environment_content.append(next_env)
+                    j += 1
+                elif lines[j].strip():  # Non-empty non-Environment line
+                    break
+                else:
+                    j += 1
+            
+            # Create merged Environment line
+            if environment_content:
+                merged_env = "Environment: " + ", ".join(environment_content)
+                cleaned_lines.append(merged_env)
+                logging.info(f"🔧 Merged {len(environment_content)} Environment sections")
+                environment_content = []  # Reset for next batch
+            
+            i = j  # Jump past all processed Environment lines
+            continue
+        
+        cleaned_lines.append(line)
+        i += 1
+    
+    resume_text = '\n'.join(cleaned_lines)
+    
+    # Fix 3: Clean up Technical Skills section with improper colons
+    tech_skills_match = re.search(
+        r'(TECHNICAL SKILLS.*?)(?=\n[A-Z][A-Z\s]+\n|\Z)', 
+        resume_text, 
+        re.DOTALL | re.IGNORECASE
+    )
+    
+    if tech_skills_match:
+        tech_section = tech_skills_match.group(1)
+        original_tech_section = tech_section
+        
+        # Fix patterns like "Redis: Package Manager:" -> "Redis\nPackage Manager:"
+        tech_section = re.sub(
+            r'([A-Za-z\s/]+):\s*([A-Z][A-Za-z\s]+):\s*\n',
+            r'\1\n\2:\n',
+            tech_section
+        )
+        
+        # Fix patterns like "ACS: Methodologies:" -> "ACS\nMethodologies:"
+        tech_section = re.sub(
+            r'([A-Z]{2,}[A-Za-z]*)\s*:\s*([A-Z][A-Za-z\s]+):\s*\n',
+            r'\1\n\2:\n',
+            tech_section
+        )
+        
+        # Fix patterns like "(TDD): Testing tools:" -> "(TDD)\nTesting tools:"
+        tech_section = re.sub(
+            r'\(TDD\)\s*:\s*([A-Z][A-Za-z\s]+):\s*\n',
+            r'(TDD)\n\1:\n',
+            tech_section
+        )
+        
+        if tech_section != original_tech_section:
+            resume_text = resume_text.replace(original_tech_section, tech_section)
+            logging.info("🔧 Fixed Technical Skills section formatting")
+    
+    # Fix 4: Remove more empty bullet patterns
+    lines = resume_text.split('\n')
+    cleaned_lines = []
+    
+    for line in lines:
+        stripped = line.strip()
+        
+        # Remove completely empty lines with just bullets
+        if stripped in ['•', '• ', ' •', '•  ', '  •']:
+            logging.info("🔧 Removed additional empty bullet point")
+            continue
+        
+        # Fix role formatting - remove bullet from role lines
+        if re.match(r'^\s*•\s*(Senior|Junior|Lead|Principal|API)?\s*(Software|Web|Full Stack|Backend|Frontend)?\s*(Developer|Engineer|Analyst|SDET|Tester|Manager)', line.strip(), re.I):
+            line = re.sub(r'^\s*•\s*', '', line)
+            logging.info(f"🔧 Removed bullet from role line: {line.strip()}")
+        
+        cleaned_lines.append(line)
+    
+    resume_text = '\n'.join(cleaned_lines)
+    
+    # Fix 5: Clean up project/company header formatting
+    resume_text = re.sub(
+        r'(\w+)\.\s*([A-Z][\w\s]*-?\s*[A-Z][a-z]+,\s*[A-Z][a-z]+,\s*[A-Z]{2})\s*\n',
+        r'\1.\n\2\n',
+        resume_text
+    )
+    
+    # Fix 6: Remove excessive empty lines (but preserve some structure)
+    resume_text = re.sub(r'\n\s*\n\s*\n\s*\n+', '\n\n', resume_text)
+    
+    logging.info("✅ Resume formatting cleanup completed")
+    return resume_text
+
+
+def clean_professional_experience_bullets(resume_text: str) -> str:
+    """
+    Remove inappropriate bullets from company/role lines in Professional Experience section.
+    Works with both text and HTML content.
+    """
+    logging.info("🧹 Cleaning up Professional Experience bullet formatting...")
+    
+    # Detect if this is HTML content
+    is_html = '<html>' in resume_text or '<div>' in resume_text or '<p>' in resume_text
+    
+    if is_html:
+        # For HTML content, remove bullets from specific elements
+        import re
+        
+        # Remove bullets from role/company lines in HTML
+        # Pattern: <h3>• Senior Software Developer</h3> -> <h3>Senior Software Developer</h3>
+        resume_text = re.sub(r'(<h[1-6][^>]*>)\s*•\s*([^<]+</h[1-6]>)', r'\1\2', resume_text)
+        
+        # Remove bullets from paragraph elements that look like roles/companies
+        resume_text = re.sub(r'(<p[^>]*>)\s*•\s*((?:Senior|Junior|Lead|Principal|API)?\s*(?:Software|Web|Full Stack|Backend|Frontend)?\s*(?:Developer|Engineer|Analyst|SDET|Tester|Manager)[^<]*</p>)', r'\1\2', resume_text, flags=re.IGNORECASE)
+        
+        logging.info("✅ HTML Professional Experience bullet cleanup completed")
+        return resume_text
+    
+    # Original text-based cleanup for non-HTML content
+    lines = resume_text.split('\n')
+    in_prof_exp = False
+    cleaned_lines = []
+    
+    for line in lines:
+        if 'PROFESSIONAL EXPERIENCE' in line.upper():
+            in_prof_exp = True
+            cleaned_lines.append(line)
+            continue
+        elif in_prof_exp and line.strip() and line[0].isupper() and len(line.split()) <= 4:
+            # Likely a new section header
+            in_prof_exp = False
+        
+        if in_prof_exp:
+            # Check if this line looks like a company or role line with inappropriate bullets
+            stripped = line.strip()
+            if (stripped.startswith('•') and 
+                (re.search(r'(Senior|Junior|Lead|Principal|API)?\s*(Software|Web|Full Stack|Backend|Frontend)?\s*(Developer|Engineer|Analyst|SDET|Tester|Manager)', stripped, re.I) or
+                 re.search(r'[A-Za-z\s]+,\s*[A-Za-z\s]+,\s*[A-Z]{2}', stripped))):  # Company location pattern
+                line = re.sub(r'^\s*•\s*', '', line)
+                logging.info(f"🔧 Removed bullet from role line: {line.strip()}")
+        
+        cleaned_lines.append(line)
+    
+    return '\n'.join(cleaned_lines)
