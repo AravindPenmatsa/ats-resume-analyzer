@@ -2385,6 +2385,115 @@ def generate_profile_summary(job_title: str, skills: set) -> str:
     logging.info("Profile summary generated.")
     return summary
 
+def find_current_project_by_date(resume_text: str) -> tuple:
+    """
+    Find the current/most recent project by analyzing dates in the resume.
+    Returns (project_start_line, project_end_line, project_info) or (None, None, None) if not found.
+    """
+    import datetime
+    import re
+    
+    lines = resume_text.split('\n')
+    current_year = datetime.datetime.now().year
+    
+    # Enhanced date patterns that capture "to" separators
+    date_patterns = [
+        r'\b\w+\s+\d{4}\s+to\s+Present\b',                    # Sep 2022 to Present
+        r'\b\w+\s+\d{4}\s+to\s+Current\b',                    # Sep 2022 to Current
+        r'\b\w+\s+\d{4}\s+to\s+Till\s+Date\b',               # Sep 2022 to Till Date
+        r'\b\w+\s+\d{4}\s+to\s+Ongoing\b',                    # Sep 2022 to Ongoing
+        r'\b\w{3}\s+\d{4}\s+to\s+Present\b',                 # Sep 2022 to Present (short month)
+        r'\b\d{4}\s+to\s+Present\b',                          # 2022 to Present
+        r'\b\w+\s+\d{4}\s*[-–]\s*Present\b',                 # Sep 2022 - Present
+        r'\b\w+\s+\d{4}\s*[-–]\s*Current\b',                 # Sep 2022 - Current
+        r'\b\w{3}\s+\d{4}\s*[-–]\s*\w{3}\s+\d{4}\b',        # Sep 2022 - Dec 2024
+        r'\b\w+\s+\d{4}\s+to\s+\w+\s+\d{4}\b',              # Sep 2022 to Dec 2024
+    ]
+    
+    found_projects = []
+    
+    for i, line in enumerate(lines):
+        for pattern in date_patterns:
+            matches = re.findall(pattern, line, re.IGNORECASE)
+            if matches:
+                for match in matches:
+                    # Determine if this is current/recent
+                    is_current = False
+                    latest_year = 0
+                    
+                    if any(word in match.lower() for word in ['present', 'current', 'ongoing', 'till date']):
+                        is_current = True
+                        latest_year = current_year
+                    else:
+                        # Extract years from the date match
+                        years = re.findall(r'\d{4}', match)
+                        if years:
+                            latest_year = max(int(year) for year in years)
+                            if latest_year >= current_year - 1:  # Current or previous year
+                                is_current = True
+                    
+                    # Find the project context (company/project name)
+                    project_context = []
+                    # Look at lines before the date for company/project info
+                    context_start = max(0, i - 5)
+                    for j in range(context_start, i + 2):
+                        if j < len(lines) and lines[j].strip():
+                            project_context.append(lines[j].strip())
+                    
+                    found_projects.append({
+                        'line_num': i + 1,
+                        'date_match': match,
+                        'is_current': is_current,
+                        'latest_year': latest_year,
+                        'context': project_context
+                    })
+                    
+                    logging.info(f"📅 Found project date at line {i+1}: {match} (Current: {'YES' if is_current else 'NO'})")
+    
+    # Find the most current project
+    if found_projects:
+        # Sort by latest year and whether it's current
+        current_projects = [p for p in found_projects if p['is_current']]
+        if current_projects:
+            # Use the first current project found
+            current_project = current_projects[0]
+            logging.info(f"🎯 IDENTIFIED CURRENT PROJECT: Line {current_project['line_num']} - {current_project['date_match']}")
+            
+            # Find the start and end of this project section
+            project_line = current_project['line_num'] - 1  # Convert to 0-based
+            
+            # Find project start (look backwards for company/project header)
+            project_start = project_line
+            for j in range(project_line, max(0, project_line - 10), -1):
+                line = lines[j].strip()
+                if line and (any(word in line for word in ['Company', 'Corp', 'Inc', 'Ltd', 'Solutions', 'Services', 'Technologies']) or 
+                           line.isupper() and len(line.split()) <= 4):
+                    project_start = j
+                    break
+            
+            # Find project end (look forwards for next project/section)
+            project_end = min(len(lines), project_line + 50)  # Default end
+            for j in range(project_line + 1, len(lines)):
+                line = lines[j].strip()
+                # Stop at next date pattern or obvious section header
+                if any(re.search(pattern, line, re.IGNORECASE) for pattern in date_patterns):
+                    project_end = j
+                    break
+                elif line.isupper() and len(line) > 5 and not any(char in line for char in ['•', '-', ':']):
+                    project_end = j
+                    break
+            
+            return project_start, project_end, current_project
+        else:
+            # If no current projects, use the most recent one
+            most_recent = max(found_projects, key=lambda x: x['latest_year'])
+            logging.info(f"🎯 USING MOST RECENT PROJECT: Line {most_recent['line_num']} - {most_recent['date_match']}")
+            return most_recent['line_num'] - 5, most_recent['line_num'] + 20, most_recent
+    
+    logging.warning("❌ No current/recent projects found with date patterns")
+    return None, None, None
+
+
 def enhance_resume_text(resume_text: str, missing_keywords: set) -> str:
     """
     Enhance resume by adding bullet points for missing keywords in the current job/project.
@@ -2402,24 +2511,38 @@ def enhance_resume_text(resume_text: str, missing_keywords: set) -> str:
     
     logging.info(f"🎯 Starting resume enhancement for {len(limited_keywords)} missing keywords: {limited_keywords}")
     
-    # Find the most recent position (current job/project) to add keywords
-    lines = resume_text.split('\n')
+    # Find the current project by analyzing dates
+    current_project_start, current_project_end, current_project_info = find_current_project_by_date(resume_text)
+    
+    # Initialize target_section for all code paths
     target_section = None
     
-    # Check for both sections and prioritize based on content
-    has_projects = any('PROJECT' in line.upper() for line in lines)
-    has_professional_experience = any('PROFESSIONAL EXPERIENCE' in line.upper() for line in lines)
-    
-    # Determine target section based on what's available
-    if has_projects:
-        target_section = "PROJECTS"
-        logging.info("🎯 Target: Adding keywords to PROJECTS section (current project)")
-    elif has_professional_experience:
-        target_section = "PROFESSIONAL EXPERIENCE" 
-        logging.info("🎯 Target: Adding keywords to PROFESSIONAL EXPERIENCE section (current position)")
+    if current_project_start is None:
+        logging.warning("❌ Could not identify current project by date - falling back to section-based detection")
+        
+        # Fallback to original section-based logic
+        lines = resume_text.split('\n')
+        
+        # Check for both sections and prioritize based on content
+        has_projects = any('PROJECT' in line.upper() for line in lines)
+        has_professional_experience = any('PROFESSIONAL EXPERIENCE' in line.upper() for line in lines)
+        
+        # Determine target section based on what's available
+        if has_projects:
+            target_section = "PROJECTS"
+            logging.info("🎯 Target: Adding keywords to PROJECTS section (current project)")
+        elif has_professional_experience:
+            target_section = "PROFESSIONAL EXPERIENCE" 
+            logging.info("🎯 Target: Adding keywords to PROFESSIONAL EXPERIENCE section (current position)")
+        else:
+            logging.warning("❌ No suitable section found for keyword enhancement")
+            return resume_text
     else:
-        logging.warning("❌ No suitable section found for keyword enhancement")
-        return resume_text
+        # For date-based detection, we'll use "CURRENT PROJECT" as the target description
+        target_section = "CURRENT PROJECT"
+        logging.info(f"🎯 Target: Adding keywords to CURRENT PROJECT identified by date analysis")
+        logging.info(f"📍 Current project range: lines {current_project_start+1}-{current_project_end+1}")
+        logging.info(f"📋 Project info: {current_project_info['date_match']}")
     
     # Generate targeted bullets for current project with missing keywords
     keywords_list = list(missing_keywords)
@@ -2490,7 +2613,8 @@ def enhance_resume_text(resume_text: str, missing_keywords: set) -> str:
                 logging.warning(f"⚠️ Failed to process '{keyword}' - moving to next keyword")
         
         # Summary of what was generated
-        logging.info(f"📊 SUMMARY: Generated {len(current_project_bullets)} bullets for {target_section}")
+        target_info = f"CURRENT PROJECT" if current_project_start is not None else target_section
+        logging.info(f"📊 SUMMARY: Generated {len(current_project_bullets)} bullets for {target_info}")
         for i, bullet in enumerate(current_project_bullets, 1):
             # Extract which keyword this bullet is for
             bullet_text = bullet.lower()
@@ -2498,33 +2622,159 @@ def enhance_resume_text(resume_text: str, missing_keywords: set) -> str:
             logging.info(f"   {i}. Keywords {matched_keywords}: {bullet[:80]}...")
 
     if not current_project_bullets:
-        logging.warning(f"❌ No GPT bullets were generated for {target_section}. Returning original text.")
+        target_info = f"CURRENT PROJECT" if current_project_start is not None else target_section
+        logging.warning(f"❌ No GPT bullets were generated for {target_info}. Returning original text.")
         logging.warning(f"❌ Original missing keywords were: {list(missing_keywords)}")
         return resume_text
 
-    logging.info(f"🎯 Total bullets to add to {target_section}: {len(current_project_bullets)}")
+    target_info = f"CURRENT PROJECT" if current_project_start is not None else target_section
+    logging.info(f"🎯 Total bullets to add to {target_info}: {len(current_project_bullets)}")
     updated_text = resume_text
     
     # Enhance ONLY the current project/position with missing keyword bullets
     if current_project_bullets:
-        logging.info(f"📝 Adding {len(current_project_bullets)} targeted bullets to {target_section}...")
-        
-        # Find the target section with more flexible pattern that handles trailing spaces and newlines
-        # Handle both exact matches and variations with trailing spaces/punctuation
-        if target_section == "PROFESSIONAL EXPERIENCE":
-            section_patterns = [
-                r'PROFESSIONAL\s+EXPERIENCE\s*[:\s]*',
-                r'WORK\s+EXPERIENCE\s*[:\s]*',
-                r'EMPLOYMENT\s+HISTORY\s*[:\s]*'
-            ]
-        elif target_section == "PROJECTS":
-            section_patterns = [
-                r'PROJECTS?\s*[:\s]*',
-                r'PROJECT\s+EXPERIENCE\s*[:\s]*',
-                r'KEY\s+PROJECTS?\s*[:\s]*'
-            ]
+        if current_project_start is not None:
+            # Date-based current project insertion
+            logging.info(f"📝 Adding {len(current_project_bullets)} targeted bullets to CURRENT PROJECT...")
+            
+            lines = updated_text.split('\n')
+            
+            # Find the best insertion point within the current project
+            insert_line = current_project_start
+            bullets_found = 0
+            role_line_found = False
+            
+            # Strategy: Find role line by looking for job titles AFTER date information
+            date_line_found = False
+            
+            # First pass: Find where the date information ends
+            for i in range(current_project_start, min(current_project_end, len(lines))):
+                line = lines[i].strip()
+                
+                # Check if this line contains date information
+                if (any(date_word in line.lower() for date_word in ['present', 'current', 'till date']) or 
+                    re.search(r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{4}', line.lower()) or
+                    re.search(r'\d{4}\s+to\s+', line.lower())):
+                    date_line_found = True
+                    logging.info(f"📅 Found date line at {i+1}: {line[:50]}...")
+                    # Start looking for role line from the next line
+                    role_search_start = i + 1
+                    break
+            
+            # If no clear date line found, start from the beginning of the project
+            if not date_line_found:
+                role_search_start = current_project_start
+            
+            # Second pass: Find the role/title line after date information
+            for i in range(role_search_start, min(current_project_end, len(lines))):
+                line = lines[i].strip()
+                
+                # Skip empty lines
+                if not line:
+                    continue
+                
+                # Skip company/location lines that still have commas
+                if (',' in line and any(state in line.upper() for state in ['CA', 'NY', 'TX', 'FL', 'WA', 'IL', 'GA', 'NC', 'VA', 'OH'])):
+                    continue
+                
+                # Skip additional date lines
+                if (any(date_word in line.lower() for date_word in ['present', 'current', 'till date']) or 
+                    re.search(r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{4}', line.lower())):
+                    continue
+                
+                # Look for role/title line (job titles, but not bullet points)
+                if (any(word in line.lower() for word in ['engineer', 'developer', 'analyst', 'manager', 'lead', 'senior', 'sdet', 'qa', 'tester', 'architect', 'consultant', 'specialist', 'coordinator']) and 
+                    not line.startswith('•') and not line.startswith('-') and not line.startswith('*') and
+                    not (',' in line and len(line.split(',')) >= 2)):  # Avoid company/location lines
+                    role_line_found = True
+                    insert_line = i + 1  # Insert after the role line
+                    logging.info(f"📌 Found role line at {i+1}: {line[:50]}...")
+                    break
+            
+            # Look for existing bullets after the role line
+            if role_line_found:
+                for i in range(insert_line, min(current_project_end, len(lines))):
+                    line = lines[i].strip()
+                    if line.startswith('•') or line.startswith('-') or line.startswith('*'):
+                        bullets_found += 1
+                        insert_line = i + 1  # Insert after the last bullet found
+                        logging.info(f"📌 Found existing bullet at line {i+1}: {line[:40]}...")
+            
+            # If no role line found, fallback to original logic but be more careful
+            if not role_line_found:
+                # Look for the first non-empty line that could be after header info
+                for i in range(current_project_start + 2, min(current_project_end, len(lines))):
+                    line = lines[i].strip()
+                    if line and not (',' in line and len(line.split(',')) >= 2):  # Skip company/location lines
+                        insert_line = i
+                        break
+            
+            logging.info(f"🎯 Inserting bullets at line {insert_line + 1} within current project")
+            
+            # Insert the bullets
+            bullets_text = '\n' + '\n'.join(current_project_bullets) + '\n'
+            
+            if insert_line < len(lines):
+                updated_lines = lines[:insert_line] + [''] + current_project_bullets + [''] + lines[insert_line:]
+            else:
+                updated_lines = lines + [''] + current_project_bullets + ['']
+            
+            updated_text = '\n'.join(updated_lines)
+            
+            # Verify the enhancement for date-based insertion
+            original_bullet_count = resume_text.count('•')
+            enhanced_bullet_count = updated_text.count('•')
+            added_bullets = enhanced_bullet_count - original_bullet_count
+            
+            logging.info(f"✅ Current project enhancement complete! Original bullets: {original_bullet_count}, Enhanced bullets: {enhanced_bullet_count}, Added: {added_bullets}")
+            
+            # Verify missing keywords are now included
+            enhanced_lower = updated_text.lower()
+            found_keywords = []
+            still_missing = []
+            
+            for keyword in missing_keywords:
+                if keyword.lower() in enhanced_lower:
+                    found_keywords.append(keyword)
+                else:
+                    still_missing.append(keyword)
+            
+            logging.info(f"🔍 Keyword verification:")
+            logging.info(f"   ✅ Found in enhanced resume: {found_keywords}")
+            if still_missing:
+                logging.warning(f"   ❌ Still missing: {still_missing}")
+            else:
+                logging.info(f"   🎉 All missing keywords successfully added!")
+            
+            # Return enhanced text for date-based insertion
+            logging.info(f"📈 Text length: {len(resume_text)} → {len(updated_text)} (+{len(updated_text) - len(resume_text)} chars)")
+            if len(updated_text) <= len(resume_text):
+                logging.warning("⚠️ GPT enhancement may have failed - no significant increase in text length")
+            else:
+                logging.info("✅ GPT enhancement appears successful - significant text increase detected")
+            
+            return updated_text
+            
         else:
-            section_patterns = [rf'{re.escape(target_section)}\s*[:\s]*']
+            # Fallback to section-based insertion (original logic)
+            logging.info(f"📝 Adding {len(current_project_bullets)} targeted bullets to {target_section}...")
+            
+            # Find the target section with more flexible pattern that handles trailing spaces and newlines
+            # Handle both exact matches and variations with trailing spaces/punctuation
+            if target_section == "PROFESSIONAL EXPERIENCE":
+                section_patterns = [
+                    r'PROFESSIONAL\s+EXPERIENCE\s*[:\s]*',
+                    r'WORK\s+EXPERIENCE\s*[:\s]*',
+                    r'EMPLOYMENT\s+HISTORY\s*[:\s]*'
+                ]
+            elif target_section == "PROJECTS":
+                section_patterns = [
+                    r'PROJECTS?\s*[:\s]*',
+                    r'PROJECT\s+EXPERIENCE\s*[:\s]*',
+                    r'KEY\s+PROJECTS?\s*[:\s]*'
+                ]
+            else:
+                section_patterns = [rf'{re.escape(target_section)}\s*[:\s]*']
         
         section_start = None
         for pattern in section_patterns:
@@ -2699,7 +2949,16 @@ def enhance_resume_text(resume_text: str, missing_keywords: set) -> str:
     enhanced_bullet_count = len(re.findall(r'^\s*•', updated_text, re.MULTILINE))
     logging.info(f"✅ Enhancement complete. Total bullets in enhanced resume: {enhanced_bullet_count}")
     
-    logging.info(f"🎉 {target_section.title()} enhancement completed successfully with missing keyword bullets!")
+    target_info = f"CURRENT PROJECT" if current_project_start is not None else target_section
+    logging.info(f"🎉 {target_info} enhancement completed successfully with missing keyword bullets!")
+    
+    # Final text length verification
+    logging.info(f"📈 Text length: {len(resume_text)} → {len(updated_text)} (+{len(updated_text) - len(resume_text)} chars)")
+    if len(updated_text) <= len(resume_text):
+        logging.warning("⚠️ GPT enhancement may have failed - no significant increase in text length")
+    else:
+        logging.info("✅ GPT enhancement appears successful - significant text increase detected")
+    
     return updated_text
 
 def generate_bullet_point_from_gpt(keyword: str) -> str:
@@ -2774,9 +3033,9 @@ def save_optimized_resume(filename: str, resume_text: str, suggestions: str) -> 
         </head>
         <body>
             <h1>Optimized Resume Content</h1>
-            <pre>{resume_text}</pre>
+            <pre>{{ resume_text }}</pre>
             <h2>Suggestions</h2>
-            <p>{suggestions}</p>
+            <p>{{ suggestions }}</p>
         </body>
         </html>
         """
