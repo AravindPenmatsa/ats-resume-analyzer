@@ -2509,9 +2509,29 @@ def enhance_resume_text(resume_text: str, missing_keywords: set) -> str:
     if current_project_bullets:
         logging.info(f"📝 Adding {len(current_project_bullets)} targeted bullets to {target_section}...")
         
-        # Find the target section with more flexible pattern
-        section_pattern = rf'{re.escape(target_section)}'
-        section_start = re.search(section_pattern, updated_text, re.IGNORECASE)
+        # Find the target section with more flexible pattern that handles trailing spaces and newlines
+        # Handle both exact matches and variations with trailing spaces/punctuation
+        if target_section == "PROFESSIONAL EXPERIENCE":
+            section_patterns = [
+                r'PROFESSIONAL\s+EXPERIENCE\s*[:\s]*',
+                r'WORK\s+EXPERIENCE\s*[:\s]*',
+                r'EMPLOYMENT\s+HISTORY\s*[:\s]*'
+            ]
+        elif target_section == "PROJECTS":
+            section_patterns = [
+                r'PROJECTS?\s*[:\s]*',
+                r'PROJECT\s+EXPERIENCE\s*[:\s]*',
+                r'KEY\s+PROJECTS?\s*[:\s]*'
+            ]
+        else:
+            section_patterns = [rf'{re.escape(target_section)}\s*[:\s]*']
+        
+        section_start = None
+        for pattern in section_patterns:
+            section_start = re.search(pattern, updated_text, re.IGNORECASE)
+            if section_start:
+                logging.info(f"✅ Found {target_section} section with pattern '{pattern}' at position {section_start.start()}")
+                break
         
         if section_start:
             logging.info(f"✅ Found {target_section} section at position {section_start.start()}")
