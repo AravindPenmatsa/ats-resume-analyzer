@@ -131,9 +131,58 @@
                 border-radius: 8px;
                 transition: width 1s ease-in-out;
             }
+            /* Loader Styles */
+            #loading-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(255, 255, 255, 0.95);
+                z-index: 9999;
+                display: none;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+            }
+
+            .spinner {
+                width: 60px;
+                height: 60px;
+                border: 6px solid #f3f3f3;
+                border-top: 6px solid #3498db;
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+                margin-bottom: 20px;
+            }
+
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+
+            .loading-text {
+                font-size: 1.2rem;
+                font-weight: 600;
+                color: #4a4a4a;
+                text-align: center;
+            }
+            
+            .loading-subtext {
+                font-size: 0.9rem;
+                color: #888;
+                margin-top: 10px;
+            }
         </style>
     </head>
     <body>
+        <!-- Loading Overlay -->
+        <div id="loading-overlay">
+            <div class="spinner"></div>
+            <div class="loading-text">Updating missing points in the downloadable resume...</div>
+            <div class="loading-subtext">This may take a few seconds while AI optimizes your content</div>
+        </div>
+
         <section class="section">
             <div class="container">
                 <div class="columns-wrapper">
@@ -153,7 +202,7 @@
                         <div class="resume-header">FREE RESUME SCANNER</div>
                         <h3 class="title has-text-centered">How Good Is Your Resume?</h3>
                         <p class="subtitle has-text-centered">Get Your Free Resume Score & Feedback In Seconds</p>
-                        <form action="/upload" method="post" enctype="multipart/form-data">
+                        <form action="/upload" method="post" enctype="multipart/form-data" id="upload-form">
                             <div class="field">
                                 <label class="label">Upload Resume (TXT, PDF, DOCX):</label>
                                 <div class="control">
@@ -198,7 +247,7 @@
                         </div>
 
                         <div class="bars-container">
-                            <p class="has-text-weight-bold">Skill Match Breakdown</p | undefined>
+                            <p class="has-text-weight-bold">Skill Match Breakdown</p>
                             <div class="bar-label"><span>Hard Skills</span><span>{{ hard_score }}%</span></div>
                             <div class="bar-wrapper"><div class="bar-fill" id="barHard"></div></div>
 
@@ -218,12 +267,20 @@
 
                         <p class="has-text-centered mt-4">Presented by Aravind Penmatsa</p>
                     </div>
-                <//undefined>
+                </div>
             </div>
         </section>
 
         <script>
             document.addEventListener("DOMContentLoaded", function () {
+                // Handle form submission loading state
+                const form = document.getElementById('upload-form');
+                if (form) {
+                    form.addEventListener('submit', function() {
+                        document.getElementById('loading-overlay').style.display = 'flex';
+                    });
+                }
+
                 const score = Number("{{ score | default(0) }}");
                 if (score && document.getElementById("matchRateChart")) {
                     const ctx = document.getElementById("matchRateChart").getContext("2d");
