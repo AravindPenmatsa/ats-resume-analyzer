@@ -1718,8 +1718,9 @@ def enhance_resume_text(resume_text: str, missing_keywords: set) -> str:
         return resume_text
     
     # Limit the number of keywords to enhance (prevent too many additions)
-    max_keywords = 5
+    max_keywords = 15
     limited_keywords = list(missing_keywords)[:max_keywords]
+
     
     logging.info(f"🎯 Starting resume enhancement for {len(limited_keywords)} missing keywords: {limited_keywords}")
     
@@ -1756,6 +1757,23 @@ def enhance_resume_text(resume_text: str, missing_keywords: set) -> str:
         logging.info(f"📍 Current project range: lines {current_project_start+1}-{current_project_end+1}")
         logging.info(f"📋 Project info: {current_project_info['date_match']}")
     
+    # Extract job role from current project for role-specific bullet generation
+    job_role = None
+    if current_project_start is not None:
+        lines = resume_text.split('\n')
+        # Look for role/title line within the current project
+        for i in range(current_project_start, min(current_project_end, len(lines))):
+            line = lines[i].strip()
+            # Look for job title keywords
+            if any(word in line.lower() for word in ['engineer', 'developer', 'analyst', 'manager', 'lead', 'senior', 'sdet', 'qa', 'tester', 'architect', 'consultant', 'specialist']):
+                # Make sure it's not a bullet point
+                if not line.startswith('•') and not line.startswith('-') and not line.startswith('*'):
+                    # Avoid company/location lines with commas
+                    if not (',' in line and len(line.split(',')) >= 2):
+                        job_role = line
+                        logging.info(f"🎭 Extracted job role: '{job_role}'")
+                        break
+    
     # Generate targeted bullets for current project with missing keywords
     keywords_list = list(missing_keywords)
     
@@ -1764,11 +1782,14 @@ def enhance_resume_text(resume_text: str, missing_keywords: set) -> str:
     processed_keywords = set()  # Track which keywords we've already processed
     
     if keywords_list:
-        # Limit to maximum 5 bullets total to avoid overwhelming the resume  
-        max_keywords = min(len(keywords_list), 5)
+        # Limit to maximum 15 bullets total to avoid overwhelming the resume  
+        max_keywords = min(len(keywords_list), 15)
         limited_keywords = keywords_list[:max_keywords]
+
         
         logging.info(f"🎯 Generating targeted bullet points for {target_section} with keywords: {limited_keywords}")
+        if job_role:
+            logging.info(f"🎭 Using job role context: '{job_role}'")
         
         for i, keyword in enumerate(limited_keywords, 1):
             # Skip if we've already successfully processed this keyword
@@ -1785,8 +1806,8 @@ def enhance_resume_text(resume_text: str, missing_keywords: set) -> str:
             
             success = False
             try:
-                # Generate bullet point for this specific keyword
-                project_bullet = openai_service.generate_project_bullet_point(keyword, 1).lstrip("•- ").strip()
+                # Generate bullet point for this specific keyword with job role context
+                project_bullet = openai_service.generate_project_bullet_point(keyword, 1, job_role).lstrip("•- ").strip()
                 logging.info(f"🤖 Generated raw bullet for '{keyword}': {project_bullet[:100]}...")
                 
                 # Validate bullet content before adding
@@ -1801,7 +1822,7 @@ def enhance_resume_text(resume_text: str, missing_keywords: set) -> str:
                     else:
                         logging.warning(f"⚠️ Generated bullet for '{keyword}' doesn't contain the keyword - regenerating...")
                         # Try once more with explicit keyword inclusion
-                        project_bullet = openai_service.generate_project_bullet_point(f"{keyword} technology", 1).lstrip("•- ").strip()
+                        project_bullet = openai_service.generate_project_bullet_point(f"{keyword} technology", 1, job_role).lstrip("•- ").strip()
                         if keyword.lower() in project_bullet.lower() and len(project_bullet) > 15:
                             formatted_bullet = f"• {project_bullet}"
                             current_project_bullets.append(formatted_bullet)
@@ -1843,7 +1864,6 @@ def enhance_resume_text(resume_text: str, missing_keywords: set) -> str:
     logging.info(f"🎯 Total bullets to add to {target_info}: {len(current_project_bullets)}")
     updated_text = resume_text
     
-    # Enhance ONLY the current project/position with missing keyword bullets
     if current_project_bullets:
         if current_project_start is not None:
             # Date-based current project insertion

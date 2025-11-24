@@ -16,16 +16,14 @@ except OSError:
     nlp = spacy.load("en_core_web_sm")
 
 def categorize_keywords(jd_text: str):
-    hard_skills, soft_skills = set(), set()
-    doc = nlp(jd_text.lower())
-    for token in doc:
-        word = token.lemma_.strip()
-        if word in HARD_KEYWORDS:
-            hard_skills.add(word)
-        elif word in SOFT_KEYWORDS:
-            soft_skills.add(word)
-    logger.info(f"Categorized keywords: {len(hard_skills)} hard skills, {len(soft_skills)} soft skills.")
-    return hard_skills, soft_skills
+    """
+    DEPRECATED: This function is kept for backward compatibility only.
+    Skills should now be extracted using jd_skill_extractor.extract_skills_from_jd()
+    
+    This function now returns empty sets and logs a warning.
+    """
+    logger.warning("⚠️ categorize_keywords() is deprecated. Use jd_skill_extractor.extract_skills_from_jd() instead.")
+    return set(), set()
 
 def ats_formatting_warnings(resume_text: str, resume_filename: str):
     suggestions = []

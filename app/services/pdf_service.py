@@ -387,17 +387,21 @@ def generate_formatted_resume_pdf(filename: str, enhanced_text: str, user_info: 
             
             if section['type'] == 'professional_experience':
                 for entry in section['content']:
-                    # Enhanced company and duration formatting
-                    header = entry.get('header', '')
-                    if '|' in header:
-                        parts = header.split('|')
-                        company = parts[0].strip()
-                        duration = parts[1].strip() if len(parts) > 1 else ''
-                    else:
-                        company = header
-                        duration = ''
+                    # Use the transformed data structure with company, location, duration
+                    company = entry.get('company', '')
+                    location = entry.get('location', '')
+                    duration = entry.get('duration', '')
                     
-                    content.append(Paragraph(company, company_style))
+                    # Format company and location together
+                    if company and location:
+                        company_location_text = f"{company} | {location}"
+                    elif company:
+                        company_location_text = company
+                    else:
+                        company_location_text = ''
+                    
+                    if company_location_text:
+                        content.append(Paragraph(company_location_text, company_style))
                     if duration:
                         content.append(Paragraph(duration, duration_style))
                     if entry.get('role'):
@@ -469,9 +473,13 @@ def generate_formatted_resume_pdf(filename: str, enhanced_text: str, user_info: 
                         content.append(Paragraph(f"• {resp}", bullet_style))
                     
                     # Environment section
-        # Build PDF content (same as later ReportLab block)
-        # Note: The content list is constructed later in the function; we reuse it here.
-        # Ensure 'content' variable is defined before this point.
+                    if project.get('environment'):
+                        env_text = f"<b>Environment:</b> {project['environment']}"
+                        content.append(Paragraph(env_text, environment_style))
+                    
+                    content.append(Spacer(1, 0.15*inch))
+        
+        # Build PDF content
         doc.build(content)
         logger.info(f"✅ PDF generated successfully using ReportLab (forced mode): {output_path}")
         return output_path
@@ -507,220 +515,250 @@ def generate_formatted_resume_pdf(filename: str, enhanced_text: str, user_info: 
             doc = SimpleDocTemplate(output_path, pagesize=letter,
                                       rightMargin=0.7*inch, leftMargin=0.7*inch,
                                       topMargin=0.7*inch, bottomMargin=0.7*inch)
-                    fontName='Helvetica',
-                    spaceAfter=15,
-                    alignment=TA_LEFT,
-                    textColor=colors.black
-                )
+            
+            styles = getSampleStyleSheet()
+            
+            # Enhanced custom styles to match WeasyPrint
+            title_style = ParagraphStyle(
+                'CustomTitle',
+                parent=styles['Title'],
+                fontSize=20,
+                fontName='Helvetica-Bold',
+                spaceAfter=2,
+                alignment=TA_LEFT,
+                textColor=colors.black
+            )
+            
+            subtitle_style = ParagraphStyle(
+                'CustomSubtitle',
+                parent=styles['Normal'],
+                fontSize=14,
+                fontName='Helvetica',
+                spaceAfter=2,
+                alignment=TA_LEFT,
+                textColor=colors.black
+            )
+            
+            contact_style = ParagraphStyle(
+                'ContactStyle',
+                parent=styles['Normal'],
+                fontSize=10,
+                fontName='Helvetica',
+                spaceAfter=15,
+                alignment=TA_LEFT,
+                textColor=colors.black
+            )
+            
+            section_title_style = ParagraphStyle(
+                'SectionTitle',
+                parent=styles['Heading2'],
+                fontSize=14,
+                fontName='Helvetica-Bold',
+                spaceBefore=15,
+                spaceAfter=8,
+                textColor=colors.HexColor('#4F81BD'),
+                borderWidth=1,
+                borderColor=colors.HexColor('#B0C4DE'),
+                borderPadding=3
+            )
+            
+            company_style = ParagraphStyle(
+                'CompanyStyle',
+                parent=styles['Normal'],
+                fontSize=11,
+                fontName='Helvetica-Bold',
+                spaceBefore=8,
+                spaceAfter=2,
+                alignment=TA_LEFT
+            )
+            
+            duration_style = ParagraphStyle(
+                'DurationStyle',
+                parent=styles['Normal'],
+                fontSize=10,
+                fontName='Helvetica-Bold',
+                spaceAfter=2,
+                alignment=TA_LEFT
+            )
+            
+            role_style = ParagraphStyle(
+                'RoleStyle',
+                parent=styles['Normal'],
+                fontSize=11,
+                fontName='Helvetica-BoldOblique',
+                spaceAfter=8,
+                alignment=TA_LEFT
+            )
+            
+            bullet_style = ParagraphStyle(
+                'BulletStyle',
+                parent=styles['Normal'],
+                fontSize=11,
+                fontName='Helvetica',
+                spaceBefore=3,
+                spaceAfter=3,
+                leftIndent=22,
+                bulletIndent=10,
+                alignment=TA_JUSTIFY
+            )
+            
+            environment_style = ParagraphStyle(
+                'EnvironmentStyle',
+                parent=styles['Normal'],
+                fontSize=9,
+                fontName='Helvetica-Oblique',
+                spaceBefore=8,
+                spaceAfter=5,
+                leftIndent=10,
+                rightIndent=10,
+                backColor=colors.HexColor('#F2F2F2'),
+                borderWidth=0.5,
+                borderColor=colors.HexColor('#E0E0E0'),
+                borderPadding=4
+            )
+            
+            content = []
+            
+            # Enhanced header section
+            content.append(Paragraph(resume_data['name'], title_style))
+            if resume_data.get('title'):
+                content.append(Paragraph(resume_data['title'], subtitle_style))
+            if resume_data.get('subtitle'):
+                content.append(Paragraph(resume_data['subtitle'], contact_style))
+            
+            # Enhanced contact info
+            contact_parts = []
+            if resume_data.get('email'):
+                contact_parts.append(resume_data['email'])
+            if resume_data.get('phone'):
+                contact_parts.append(resume_data['phone'])
+            if resume_data.get('location'):
+                contact_parts.append(resume_data['location'])
+            if resume_data.get('linkedin'):
+                contact_parts.append(resume_data['linkedin'])
+            
+            if contact_parts:
+                content.append(Paragraph(' | '.join(contact_parts), contact_style))
+            
+            content.append(Spacer(1, 0.1*inch))
+            
+            # Enhanced sections with professional styling
+            for section in resume_data['sections']:
+                # Section title with underline
+                section_title = section['name']
+                if section_title == 'Projects':
+                    section_title = 'Professional Experience'
                 
-                section_title_style = ParagraphStyle(
-                    'SectionTitle',
-                    parent=styles['Heading2'],
-                    fontSize=14,
-                    fontName='Helvetica-Bold',
-                    spaceBefore=15,
-                    spaceAfter=8,
-                    textColor=colors.HexColor('#4F81BD'),
-                    borderWidth=1,
-                    borderColor=colors.HexColor('#B0C4DE'),
-                    borderPadding=3
-                )
+                content.append(Paragraph(section_title, section_title_style))
+                content.append(HRFlowable(width="100%", thickness=1, 
+                                        color=colors.HexColor('#B0C4DE'), 
+                                        spaceBefore=3, spaceAfter=8))
                 
-                company_style = ParagraphStyle(
-                    'CompanyStyle',
-                    parent=styles['Normal'],
-                    fontSize=11,
-                    fontName='Helvetica-Bold',
-                    spaceBefore=8,
-                    spaceAfter=2,
-                    alignment=TA_LEFT
-                )
                 
-                duration_style = ParagraphStyle(
-                    'DurationStyle',
-                    parent=styles['Normal'],
-                    fontSize=10,
-                    fontName='Helvetica-Bold',
-                    spaceAfter=2,
-                    alignment=TA_LEFT
-                )
-                
-                role_style = ParagraphStyle(
-                    'RoleStyle',
-                    parent=styles['Normal'],
-                    fontSize=11,
-                    fontName='Helvetica-BoldOblique',
-                    spaceAfter=8,
-                    alignment=TA_LEFT
-                )
-                
-                bullet_style = ParagraphStyle(
-                    'BulletStyle',
-                    parent=styles['Normal'],
-                    fontSize=11,
-                    fontName='Helvetica',
-                    spaceBefore=3,
-                    spaceAfter=3,
-                    leftIndent=22,
-                    bulletIndent=10,
-                    alignment=TA_JUSTIFY
-                )
-                
-                environment_style = ParagraphStyle(
-                    'EnvironmentStyle',
-                    parent=styles['Normal'],
-                    fontSize=9,
-                    fontName='Helvetica-Oblique',
-                    spaceBefore=8,
-                    spaceAfter=5,
-                    leftIndent=10,
-                    rightIndent=10,
-                    backColor=colors.HexColor('#F2F2F2'),
-                    borderWidth=0.5,
-                    borderColor=colors.HexColor('#E0E0E0'),
-                    borderPadding=4
-                )
-                
-                content = []
-                
-                # Enhanced header section
-                content.append(Paragraph(resume_data['name'], title_style))
-                if resume_data.get('title'):
-                    content.append(Paragraph(resume_data['title'], subtitle_style))
-                if resume_data.get('subtitle'):
-                    content.append(Paragraph(resume_data['subtitle'], contact_style))
-                
-                # Enhanced contact info
-                contact_parts = []
-                if resume_data.get('email'):
-                    contact_parts.append(resume_data['email'])
-                if resume_data.get('phone'):
-                    contact_parts.append(resume_data['phone'])
-                if resume_data.get('location'):
-                    contact_parts.append(resume_data['location'])
-                if resume_data.get('linkedin'):
-                    contact_parts.append(resume_data['linkedin'])
-                
-                if contact_parts:
-                    content.append(Paragraph(' | '.join(contact_parts), contact_style))
-                
-                content.append(Spacer(1, 0.1*inch))
-                
-                # Enhanced sections with professional styling
-                for section in resume_data['sections']:
-                    # Section title with underline
-                    section_title = section['name']
-                    if section_title == 'Projects':
-                        section_title = 'Professional Experience'
-                    
-                    content.append(Paragraph(section_title, section_title_style))
-                    content.append(HRFlowable(width="100%", thickness=1, 
-                                            color=colors.HexColor('#B0C4DE'), 
-                                            spaceBefore=3, spaceAfter=8))
-                    
-                    if section['type'] == 'professional_experience':
-                        for entry in section['content']:
-                            # Enhanced company and duration formatting
-                            header = entry.get('header', '')
-                            if '|' in header:
-                                parts = header.split('|')
-                                company = parts[0].strip()
-                                duration = parts[1].strip() if len(parts) > 1 else ''
-                            else:
-                                company = header
-                                duration = ''
-                            
-                            content.append(Paragraph(company, company_style))
-                            if duration:
-                                content.append(Paragraph(duration, duration_style))
-                            if entry.get('role'):
-                                content.append(Paragraph(entry['role'], role_style))
-                            
-                            # Enhanced responsibilities with proper bullet formatting
-                            for resp in entry.get('responsibilities', []):
-                                content.append(Paragraph(f"• {resp}", bullet_style))
-                            
-                            # Environment section if present
-                            if entry.get('environment'):
-                                env_text = f"<b>Environment:</b> {entry['environment']}"
-                                content.append(Paragraph(env_text, environment_style))
-                            
-                            content.append(Spacer(1, 0.15*inch))
-                    
-                    elif section['type'] == 'bullets':
-                        for bullet in section['content']:
-                            content.append(Paragraph(f"• {bullet}", bullet_style))
-                        content.append(Spacer(1, 0.1*inch))
-                    
-                    elif section['type'] == 'plain_text_block':
-                        # Handle Technical Skills as table if it contains colons
-                        if section['name'] == 'Technical Skills' and ':' in section['content']:
-                            lines = section['content'].split('\n')
-                            skills_data = []
-                            for line in lines:
-                                if line.strip() and ':' in line:
-                                    parts = line.split(':', 1)
-                                    skills_data.append([f"{parts[0].strip()}:", parts[1].strip()])
-                                elif line.strip():
-                                    skills_data.append([line.strip(), ''])
-                            
-                            if skills_data:
-                                skills_table = Table(skills_data, colWidths=[2*inch, 4*inch])
-                                skills_table.setStyle(TableStyle([
-                                    ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-                                    ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
-                                    ('FONTSIZE', (0, 0), (-1, -1), 11),
-                                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                                    ('LEFTPADDING', (0, 0), (-1, -1), 0),
-                                    ('RIGHTPADDING', (0, 0), (0, -1), 15),
-                                    ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-                                ]))
-                                content.append(skills_table)
+                if section['type'] == 'professional_experience':
+                    for entry in section['content']:
+                        # Use the transformed data structure with company, location, duration
+                        company = entry.get('company', '')
+                        location = entry.get('location', '')
+                        duration = entry.get('duration', '')
+                        
+                        # Format company and location together
+                        if company and location:
+                            company_location_text = f"{company} | {location}"
+                        elif company:
+                            company_location_text = company
                         else:
-                            # Regular plain text
-                            lines = section['content'].split('\n')
-                            for line in lines:
-                                if line.strip():
-                                    content.append(Paragraph(line.strip(), bullet_style))
-                        content.append(Spacer(1, 0.1*inch))
-                    
-                    elif section['type'] == 'projects':
-                        for project in section['content']:
-                            header = project.get('header', [])
-                            if isinstance(header, list) and header:
-                                # Company
-                                content.append(Paragraph(header[0], company_style))
-                                # Duration (usually the last element)
-                                if len(header) > 1:
-                                    content.append(Paragraph(header[-1], duration_style))
-                                # Role (middle element if exists)
-                                if len(header) > 2:
-                                    content.append(Paragraph(header[1], role_style))
-                            
-                            # Enhanced responsibilities
-                            for resp in project.get('responsibilities', []):
-                                content.append(Paragraph(f"• {resp}", bullet_style))
-                            
-                            # Environment section
-                            if project.get('environment'):
-                                env_text = f"<b>Environment:</b> {project['environment']}"
-                                content.append(Paragraph(env_text, environment_style))
-                            
-                            content.append(Spacer(1, 0.15*inch))
+                            company_location_text = ''
+                        
+                        if company_location_text:
+                            content.append(Paragraph(company_location_text, company_style))
+                        if duration:
+                            content.append(Paragraph(duration, duration_style))
+                        if entry.get('role'):
+                            content.append(Paragraph(entry['role'], role_style))
+                        
+                        # Enhanced responsibilities with proper bullet formatting
+                        for resp in entry.get('responsibilities', []):
+                            content.append(Paragraph(f"• {resp}", bullet_style))
+                        
+                        # Environment section if present
+                        if entry.get('environment'):
+                            env_text = f"<b>Environment:</b> {entry['environment']}"
+                            content.append(Paragraph(env_text, environment_style))
+                        
+                        content.append(Spacer(1, 0.15*inch))
+
                 
-                # Build PDF
-                doc.build(content)
+                elif section['type'] == 'bullets':
+                    for bullet in section['content']:
+                        content.append(Paragraph(f"• {bullet}", bullet_style))
+                    content.append(Spacer(1, 0.1*inch))
                 
-                logger.info(f"PDF generated successfully using ReportLab: {output_path}")
-                return output_path
+                elif section['type'] == 'plain_text_block':
+                    # Handle Technical Skills as table if it contains colons
+                    if section['name'] == 'Technical Skills' and ':' in section['content']:
+                        lines = section['content'].split('\n')
+                        skills_data = []
+                        for line in lines:
+                            if line.strip() and ':' in line:
+                                parts = line.split(':', 1)
+                                skills_data.append([f"{parts[0].strip()}:", parts[1].strip()])
+                            elif line.strip():
+                                skills_data.append([line.strip(), ''])
+                        
+                        if skills_data:
+                            skills_table = Table(skills_data, colWidths=[2*inch, 4*inch])
+                            skills_table.setStyle(TableStyle([
+                                ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+                                ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
+                                ('FONTSIZE', (0, 0), (-1, -1), 11),
+                                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                                ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                                ('RIGHTPADDING', (0, 0), (0, -1), 15),
+                                ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+                            ]))
+                            content.append(skills_table)
+                    else:
+                        # Regular plain text
+                        lines = section['content'].split('\n')
+                        for line in lines:
+                            if line.strip():
+                                content.append(Paragraph(line.strip(), bullet_style))
+                    content.append(Spacer(1, 0.1*inch))
                 
-            except Exception as reportlab_error:
-                logger.error(f"Both WeasyPrint and ReportLab failed. WeasyPrint: {weasyprint_error}, ReportLab: {reportlab_error}")
-                raise Exception("Failed to generate PDF resume. Both WeasyPrint and ReportLab failed.")
-        
-    except Exception as e:
-        logger.error(f"Error generating PDF: {e}", exc_info=True)
-        raise
+                elif section['type'] == 'projects':
+                    for project in section['content']:
+                        header = project.get('header', [])
+                        if isinstance(header, list) and header:
+                            # Company
+                            content.append(Paragraph(header[0], company_style))
+                            # Duration (usually the last element)
+                            if len(header) > 1:
+                                content.append(Paragraph(header[-1], duration_style))
+                            # Role (middle element if exists)
+                            if len(header) > 2:
+                                content.append(Paragraph(header[1], role_style))
+                        
+                        # Enhanced responsibilities
+                        for resp in project.get('responsibilities', []):
+                            content.append(Paragraph(f"• {resp}", bullet_style))
+                        
+                        # Environment section
+                        if project.get('environment'):
+                            env_text = f"<b>Environment:</b> {project['environment']}"
+                            content.append(Paragraph(env_text, environment_style))
+                        
+                        content.append(Spacer(1, 0.15*inch))
+            
+            # Build PDF
+            doc.build(content)
+            
+            logger.info(f"PDF generated successfully using ReportLab: {output_path}")
+            return output_path
+            
+        except Exception as reportlab_error:
+            logger.error(f"Both WeasyPrint and ReportLab failed. WeasyPrint: {weasyprint_error}, ReportLab: {reportlab_error}")
+            raise Exception("Failed to generate PDF resume. Both WeasyPrint and ReportLab failed.")
 
 def save_optimized_resume(filename: str, resume_text: str, suggestions: str) -> str:
     base_name = os.path.splitext(filename)[0]

@@ -10,8 +10,9 @@ from fastapi.templating import Jinja2Templates
 
 from app.core.config import GENERATED_DIR, UPLOAD_DIR, templates
 from app.services.resume_service import extract_text_from_file, add_header_section, enhance_resume_text
-from app.services.scoring_service import categorize_keywords, score_resume, ats_formatting_warnings, ats_content_warnings
+from app.services.scoring_service import score_resume, ats_formatting_warnings, ats_content_warnings
 from app.services.pdf_service import generate_formatted_resume_pdf
+from app.services.jd_skill_extractor import extract_skills_from_jd
 
 router = APIRouter()
 logger = logging.getLogger("app")
@@ -60,8 +61,11 @@ async def upload_resume(
                 "search_score": 0
             })
 
-        # Extract skills
-        hard_skills, soft_skills = categorize_keywords(jd_text)
+        # Extract skills from job description using AI
+        logger.info("🤖 Extracting skills from job description using AI...")
+        hard_skills, soft_skills = extract_skills_from_jd(jd_text)
+        logger.info(f"📊 Extracted {len(hard_skills)} hard skills and {len(soft_skills)} soft skills from JD")
+        
         score, hard_score, soft_score, search_score, missing_keywords, matched_hard, matched_soft = score_resume(resume_text, hard_skills, soft_skills)
 
         filename = resume.filename or "unknown_file"

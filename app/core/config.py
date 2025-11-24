@@ -16,12 +16,16 @@ GENERATED_DIR = BASE_DIR / "generated_resumes"
 STATIC_DIR = PROJECT_ROOT / "static"
 TEMPLATES_DIR = PROJECT_ROOT / "templates"
 CACHE_PATH = PROJECT_ROOT / "bullet_cache.json"
+JD_SKILLS_CACHE_PATH = PROJECT_ROOT / "jd_skills_cache.json"  # Cache for extracted JD skills
 
 # Ensure directories exist
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(GENERATED_DIR, exist_ok=True)
 
 # Constants
+# DEPRECATED: HARD_KEYWORDS and SOFT_KEYWORDS are no longer used for scoring.
+# Skills are now extracted dynamically from job descriptions using AI.
+# These are kept for backward compatibility only.
 HARD_KEYWORDS = {
     "python", "java", "javascript", "typescript", "c", "c++", "c#", "ruby", "php", "go", "rust", "kotlin", "swift", "r", "matlab", "scala", "perl", "sql", "bash", "powershell", "dart", "julia",
     "react", "angular", "vue", "node", "django", "flask", "spring", "ruby on rails", "laravel", "asp.net", "express",
