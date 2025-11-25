@@ -1,19 +1,8 @@
-import spacy
 import re
 import logging
-import subprocess
 from app.core.config import HARD_KEYWORDS, SOFT_KEYWORDS, ACTION_VERBS
 
 logger = logging.getLogger("app")
-
-# Load spaCy model
-try:
-    nlp = spacy.load("en_core_web_sm")
-except OSError:
-    logger.info("spaCy model 'en_core_web_sm' not found. Downloading...")
-    subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"], check=True)
-    logger.info("spaCy model downloaded successfully.")
-    nlp = spacy.load("en_core_web_sm")
 
 def categorize_keywords(jd_text: str):
     """
