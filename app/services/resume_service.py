@@ -1201,8 +1201,40 @@ def parse_experience_section(content_lines: list) -> list:
     Enhanced parsing for professional experience content into structured entries,
     handling multiple formats: company-first, role-first, and multi-line structures.
     """
+    # PREPROCESSING: Extract Environment lines and associate them with their entries
+    # This prevents "Environment:" from being treated as company names
+    preprocessed_lines = []
+    environment_map = {}  # Maps entry index to environment text
+    current_entry_idx = -1
+    
+    for line in content_lines:
+        stripped = line.strip()
+        if not stripped:
+            preprocessed_lines.append(line)
+            continue
+            
+        # Check if this line starts an Environment section
+        if re.match(r'^Environment\s*:', stripped, re.I):
+            # Extract environment text (everything after "Environment:")
+            env_text = re.sub(r'^Environment\s*:\s*', '', stripped, flags=re.I).strip()
+            # Store it for the current entry
+            if current_entry_idx >= 0:
+                environment_map[current_entry_idx] = env_text
+            # Don't add this line to preprocessed_lines (we'll add it back later)
+            continue
+        
+        # Check if this line starts a new entry (has a date)
+        if is_date_line(stripped):
+            current_entry_idx += 1
+            
+        preprocessed_lines.append(line)
+    
+    # Now parse using the preprocessed lines
+    content_lines = preprocessed_lines
+    
     experience_entries = []
     i = 0
+    entry_idx = -1
     
     while i < len(content_lines):
         line = content_lines[i].strip()
@@ -1446,8 +1478,13 @@ def parse_experience_section(content_lines: list) -> list:
         entry_data['header'] = entry_data['header'].strip()
         entry_data['role'] = entry_data['role'].strip()
         
+        # Apply environment from preprocessing if available
+        if entry_idx in environment_map:
+            entry_data['environment'] = environment_map[entry_idx]
+        
         if entry_data['header'] or entry_data['role']:
             experience_entries.append(entry_data)
+            entry_idx += 1  # Increment for next entry
 
     return experience_entries
 
