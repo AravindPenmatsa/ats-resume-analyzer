@@ -370,19 +370,40 @@ def extract_text_from_file(upload_file: UploadFile) -> str:
         return text
     elif file_ext == ".doc":
         try:
-            # Use textutil on macOS to convert .doc to txt
-            logger.info(f"Attempting to convert .doc file using textutil: {file_path}")
-            result = subprocess.run(
-                ["textutil", "-convert", "txt", "-stdout", str(file_path)],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            text = result.stdout
-            logger.info(f"Extracted {len(text)} characters from DOC using textutil.")
-            return text
+            # 1. Try textutil (macOS standard)
+            textutil_path = "/usr/bin/textutil"
+            if os.path.exists(textutil_path):
+                logger.info(f"Attempting to convert .doc file using textutil: {file_path}")
+                result = subprocess.run(
+                    [textutil_path, "-convert", "txt", "-stdout", str(file_path)],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                text = result.stdout
+                logger.info(f"Extracted {len(text)} characters from DOC using textutil.")
+                return text
+            
+            # 2. Try antiword (Linux/Production standard)
+            antiword_path = shutil.which("antiword")
+            if antiword_path:
+                logger.info(f"Attempting to convert .doc file using antiword: {file_path}")
+                result = subprocess.run(
+                    [antiword_path, str(file_path)],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                text = result.stdout
+                logger.info(f"Extracted {len(text)} characters from DOC using antiword.")
+                return text
+                
+            logger.warning("No suitable .doc converter found (textutil or antiword).")
+            return ""
+            
         except subprocess.CalledProcessError as e:
             logger.error(f"Error converting .doc file: {e}")
+            logger.error(f"Converter stderr: {e.stderr}")
             return ""
         except Exception as e:
             logger.error(f"Unexpected error parsing .doc file: {e}")
