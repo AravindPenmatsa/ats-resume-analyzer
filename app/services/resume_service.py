@@ -369,11 +369,12 @@ def extract_text_from_file(upload_file: UploadFile) -> str:
         logger.info(f"Extracted {len(text)} characters from DOCX.")
         return text
     elif file_ext == ".doc":
+        logger.info(f"Processing .doc file: {file_path}")
         try:
             # 1. Try textutil (macOS standard)
             textutil_path = "/usr/bin/textutil"
             if os.path.exists(textutil_path):
-                logger.info(f"Attempting to convert .doc file using textutil: {file_path}")
+                logger.info(f"Found textutil at {textutil_path}. Executing conversion...")
                 result = subprocess.run(
                     [textutil_path, "-convert", "txt", "-stdout", str(file_path)],
                     capture_output=True,
@@ -381,13 +382,17 @@ def extract_text_from_file(upload_file: UploadFile) -> str:
                     check=True
                 )
                 text = result.stdout
-                logger.info(f"Extracted {len(text)} characters from DOC using textutil.")
+                logger.info(f"textutil conversion successful. Extracted {len(text)} characters.")
+                if not text.strip():
+                    logger.warning("textutil returned empty text!")
                 return text
+            else:
+                logger.info(f"textutil not found at {textutil_path}")
             
             # 2. Try antiword (Linux/Production standard)
             antiword_path = shutil.which("antiword")
             if antiword_path:
-                logger.info(f"Attempting to convert .doc file using antiword: {file_path}")
+                logger.info(f"Found antiword at {antiword_path}. Executing conversion...")
                 result = subprocess.run(
                     [antiword_path, str(file_path)],
                     capture_output=True,
@@ -395,10 +400,28 @@ def extract_text_from_file(upload_file: UploadFile) -> str:
                     check=True
                 )
                 text = result.stdout
-                logger.info(f"Extracted {len(text)} characters from DOC using antiword.")
+                logger.info(f"antiword conversion successful. Extracted {len(text)} characters.")
                 return text
+            else:
+                logger.warning("antiword not found in PATH")
+            
+            # 3. Fallback: Try 'strings' command (available on most Unix systems)
+            # This is a last resort to extract printable characters from binary files
+            logger.info("Attempting fallback text extraction using 'strings' command...")
+            strings_path = shutil.which("strings") or "/usr/bin/strings"
+            if os.path.exists(strings_path):
+                result = subprocess.run(
+                    [strings_path, str(file_path)],
+                    capture_output=True,
+                    text=True,
+                    check=False  # Don't raise on error, just try
+                )
+                if result.returncode == 0:
+                    text = result.stdout
+                    logger.info(f"Fallback 'strings' extraction successful. Extracted {len(text)} characters.")
+                    return text
                 
-            logger.warning("No suitable .doc converter found (textutil or antiword).")
+            logger.error("No suitable .doc converter found (textutil, antiword, or strings). Cannot extract text.")
             return ""
             
         except subprocess.CalledProcessError as e:
