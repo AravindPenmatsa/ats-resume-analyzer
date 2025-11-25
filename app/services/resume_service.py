@@ -11,6 +11,7 @@ from app.services.openai_service import openai_service
 import json
 import datetime
 import sys
+import subprocess
 
 
 logger = logging.getLogger("app")
@@ -367,6 +368,25 @@ def extract_text_from_file(upload_file: UploadFile) -> str:
         text = docx2txt.process(file_path)
         logger.info(f"Extracted {len(text)} characters from DOCX.")
         return text
+    elif file_ext == ".doc":
+        try:
+            # Use textutil on macOS to convert .doc to txt
+            logger.info(f"Attempting to convert .doc file using textutil: {file_path}")
+            result = subprocess.run(
+                ["textutil", "-convert", "txt", "-stdout", str(file_path)],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            text = result.stdout
+            logger.info(f"Extracted {len(text)} characters from DOC using textutil.")
+            return text
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Error converting .doc file: {e}")
+            return ""
+        except Exception as e:
+            logger.error(f"Unexpected error parsing .doc file: {e}")
+            return ""
     
     logger.warning(f"Unsupported file type: {file_ext}. Returning empty string.")
     return ""
