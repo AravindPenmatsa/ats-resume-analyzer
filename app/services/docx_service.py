@@ -31,6 +31,52 @@ def clean_text(text: str) -> str:
     
     return text.strip()
 
+def clean_experience_header(header: str) -> dict:
+    """
+    Clean up experience header to extract proper company/location and date.
+    Headers often contain: "Environment: ... | Company, Location | Date"
+    We need to extract just "Company, Location" and "Date"
+    """
+    if not header:
+        return {'company_location': '', 'date': ''}
+    
+    # Remove any "Environment:" prefix if it exists
+    header = re.sub(r'^Environment:\s*[^|]*\|\s*', '', header, flags=re.I)
+    
+    # Remove excessive whitespace
+    header = re.sub(r'\s+', ' ', header).strip()
+    
+    # Try to split by pipe to get company/location and date
+    if '|' in header:
+        parts = header.split('|')
+        if len(parts) >= 2:
+            # Last part is usually the date
+            date_part = parts[-1].strip()
+            # Everything before is company/location
+            company_location = ' | '.join(parts[:-1]).strip()
+            
+            return {
+                'company_location': company_location,
+                'date': date_part
+            }
+    
+    # Fallback: try to find a date pattern and split there
+    date_match = re.search(r'((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{2,4}\s*(?:to|–|-|—)\s*(?:Present|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{2,4}))', header, re.I)
+    if date_match:
+        date_part = date_match.group(1)
+        company_location = header[:date_match.start()].strip()
+        
+        return {
+            'company_location': company_location,
+            'date': date_part
+        }
+    
+    # If we can't parse it, return as-is
+    return {
+        'company_location': header,
+        'date': ''
+    }
+
 def add_hyperlink(paragraph, url, text, color="0000EE", underline=True):
     """
     Add a hyperlink to a paragraph.
@@ -170,10 +216,10 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str, user_info:
             # Section Content
             if section['type'] == 'professional_experience' or section['type'] == 'projects':
                 for entry in section['content']:
-                    # Company | Location | Duration line
-                    company = entry.get('company', '')
-                    location = entry.get('location', '')
-                    duration = entry.get('duration', '')
+                    # Clean up the header to extract proper company/location and date
+                    cleaned_header = clean_experience_header(entry.get('header', ''))
+                    company_location = cleaned_header['company_location']
+                    duration = cleaned_header['date']
                     
                     # Create a table for the header line to handle alignment
                     table = document.add_table(rows=1, cols=2)
@@ -188,14 +234,8 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str, user_info:
                     cell_left = table.cell(0, 0)
                     left_p = cell_left.paragraphs[0]
                     
-                    company_text = ""
-                    if company and location:
-                        company_text = f"{company} | {location}"
-                    elif company:
-                        company_text = company
-                    
-                    if company_text:
-                        run = left_p.add_run(company_text)
+                    if company_location:
+                        run = left_p.add_run(company_location)
                         run.bold = True
                         run.font.size = Pt(11)
                         run.font.name = 'Arial'
