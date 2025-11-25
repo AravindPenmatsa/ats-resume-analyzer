@@ -46,8 +46,8 @@ def clean_experience_header(header: str, responsibilities: list = None) -> dict:
                 date_match = re.search(r'((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{2,4}\s*[–\-—]\s*(?:Present|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{2,4}))', resp, re.I)
                 if date_match:
                     date_part = date_match.group(1)
-                    # Extract company (everything between "Client:" and the date)
-                    company_match = re.search(r'(?:Client|Company):\s*([^–\-—]+?)(?:\s{2,}|\u2028)', resp, re.I)
+                    # Extract company (everything between "Client:" and multiple spaces or line separator)
+                    company_match = re.search(r'(?:Client|Company):\s*(.+?)(?:\s{3,}|[\u2028\n])', resp, re.I)
                     if company_match:
                         company_location = company_match.group(1).strip()
                         return {
