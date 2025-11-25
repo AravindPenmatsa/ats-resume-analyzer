@@ -31,12 +31,30 @@ def clean_text(text: str) -> str:
     
     return text.strip()
 
-def clean_experience_header(header: str) -> dict:
+def clean_experience_header(header: str, responsibilities: list = None) -> dict:
     """
     Clean up experience header to extract proper company/location and date.
-    Headers often contain: "Environment: ... | Company, Location | Date"
-    We need to extract just "Company, Location" and "Date"
+    If header is empty, try to extract from first responsibility (common with .doc files).
     """
+    # If header is empty, try to extract from responsibilities
+    if (not header or not header.strip()) and responsibilities:
+        # Check first few responsibilities for company/date info
+        for resp in responsibilities[:3]:
+            # Look for patterns like "Client: ... Aug 2024 – Present"
+            if 'Client:' in resp or 'Company:' in resp:
+                # Extract date from this line
+                date_match = re.search(r'((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{2,4}\s*[–\-—]\s*(?:Present|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{2,4}))', resp, re.I)
+                if date_match:
+                    date_part = date_match.group(1)
+                    # Extract company (everything between "Client:" and the date)
+                    company_match = re.search(r'(?:Client|Company):\s*([^–\-—]+?)(?:\s{2,}|\u2028)', resp, re.I)
+                    if company_match:
+                        company_location = company_match.group(1).strip()
+                        return {
+                            'company_location': company_location,
+                            'date': date_part
+                        }
+    
     if not header:
         return {'company_location': '', 'date': ''}
     
@@ -217,7 +235,11 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str, user_info:
             if section['type'] == 'professional_experience' or section['type'] == 'projects':
                 for entry in section['content']:
                     # Clean up the header to extract proper company/location and date
-                    cleaned_header = clean_experience_header(entry.get('header', ''))
+                    # Pass responsibilities in case header is empty (common with .doc files)
+                    cleaned_header = clean_experience_header(
+                        entry.get('header', ''),
+                        entry.get('responsibilities', [])
+                    )
                     company_location = cleaned_header['company_location']
                     duration = cleaned_header['date']
                     
@@ -266,7 +288,15 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str, user_info:
                         role_p.paragraph_format.space_after = Pt(3)
                     
                     # Responsibilities (Bullets)
+                    # Filter out lines that contain company/role/location info (they're in the header now)
                     for resp in entry.get('responsibilities', []):
+                        # Skip lines that start with Client:, Company:, Role:, Location:
+                        if re.match(r'^(Client|Company|Role|Location):', resp, re.I):
+                            continue
+                        # Skip empty or very short lines
+                        if len(resp.strip()) < 10:
+                            continue
+                        
                         p = document.add_paragraph(style='List Bullet')
                         run = p.add_run(resp)
                         run.font.size = Pt(11)
