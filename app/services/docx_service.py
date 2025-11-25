@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from datetime import datetime
 from docx import Document
 from docx.shared import Pt, Inches, RGBColor
@@ -10,6 +11,25 @@ from app.core.config import GENERATED_DIR
 from app.services.resume_service import parse_resume_to_structure
 
 logger = logging.getLogger("app")
+
+def clean_text(text: str) -> str:
+    """
+    Clean text by normalizing whitespace and removing excessive spaces.
+    This is especially important for text extracted from .doc files via textutil/antiword.
+    """
+    if not text:
+        return text
+    
+    # Replace multiple spaces with single space
+    text = re.sub(r'  +', ' ', text)
+    
+    # Remove spaces before punctuation
+    text = re.sub(r'\s+([.,;:!?])', r'\1', text)
+    
+    # Normalize line breaks
+    text = re.sub(r'\n\s*\n', '\n', text)
+    
+    return text.strip()
 
 def add_hyperlink(paragraph, url, text, color="0000EE", underline=True):
     """
@@ -236,11 +256,14 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str, user_info:
 
             elif section['type'] == 'bullets':
                 for bullet in section['content']:
-                    p = document.add_paragraph(style='List Bullet')
-                    run = p.add_run(bullet)
-                    run.font.size = Pt(11)
-                    run.font.name = 'Arial'
-                    p.paragraph_format.space_after = Pt(2)
+                    # Clean the bullet text to remove excessive whitespace
+                    cleaned_bullet = clean_text(bullet)
+                    if cleaned_bullet:  # Only add non-empty bullets
+                        p = document.add_paragraph(style='List Bullet')
+                        run = p.add_run(cleaned_bullet)
+                        run.font.size = Pt(11)
+                        run.font.name = 'Arial'
+                        p.paragraph_format.space_after = Pt(2)
                 document.add_paragraph().paragraph_format.space_after = Pt(8)
 
             elif section['type'] == 'plain_text_block':
