@@ -241,13 +241,13 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str, user_info:
                         env_label.font.size = Pt(9)
                         env_label.font.name = 'Arial'
                         
-                        env_text = env_p.add_run(entry['environment'])
+                        # Clean the environment text
+                        env_text_content = clean_text(entry['environment'])
+                        env_text = env_p.add_run(env_text_content)
                         env_text.italic = True
                         env_text.font.size = Pt(9)
                         env_text.font.name = 'Arial'
                         
-                        # Add shading/background color simulation (not perfect in python-docx without complex xml)
-                        # For now, just keep it simple text
                         env_p.paragraph_format.space_before = Pt(4)
                         env_p.paragraph_format.space_after = Pt(12)
                     else:
@@ -268,20 +268,32 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str, user_info:
 
             elif section['type'] == 'plain_text_block':
                 # Technical Skills table handling
-                if section_name == 'Technical Skills' and ':' in section['content']:
-                    table = document.add_table(rows=0, cols=2)
-                    table.autofit = False
-                    table.columns[0].width = Inches(2.0)
-                    table.columns[1].width = Inches(5.0)
+                if section_name == 'Technical Skills':
+                    # Clean the content first
+                    content = clean_text(section['content'])
                     
-                    lines = section['content'].split('\n')
-                    for line in lines:
-                        if line.strip():
-                            row_cells = table.add_row().cells
-                            if ':' in line:
+                    # Remove pipe characters that come from .doc extraction
+                    content = re.sub(r'\s*\|\s*', ' ', content)
+                    
+                    # Check if it has colon-separated format
+                    if ':' in content:
+                        table = document.add_table(rows=0, cols=2)
+                        table.autofit = False
+                        table.columns[0].width = Inches(2.0)
+                        table.columns[1].width = Inches(5.0)
+                        
+                        lines = content.split('\n')
+                        for line in lines:
+                            line = line.strip()
+                            if line and ':' in line:
+                                row_cells = table.add_row().cells
                                 parts = line.split(':', 1)
                                 category = parts[0].strip()
                                 skills = parts[1].strip()
+                                
+                                # Remove any remaining pipe characters
+                                category = category.replace('|', '').strip()
+                                skills = skills.replace('|', ',').strip()
                                 
                                 cat_run = row_cells[0].paragraphs[0].add_run(category)
                                 cat_run.bold = True
@@ -291,12 +303,16 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str, user_info:
                                 skill_run = row_cells[1].paragraphs[0].add_run(skills)
                                 skill_run.font.size = Pt(11)
                                 skill_run.font.name = 'Arial'
-                            else:
-                                row_cells[0].paragraphs[0].add_run(line.strip())
-                    
-                    document.add_paragraph().paragraph_format.space_after = Pt(8)
+                        
+                        document.add_paragraph().paragraph_format.space_after = Pt(8)
+                    else:
+                        # Plain text format
+                        p = document.add_paragraph(content)
+                        p.paragraph_format.space_after = Pt(8)
                 else:
-                    p = document.add_paragraph(section['content'])
+                    # Other plain text sections
+                    content = clean_text(section['content'])
+                    p = document.add_paragraph(content)
                     p.paragraph_format.space_after = Pt(8)
 
         # Save Document
