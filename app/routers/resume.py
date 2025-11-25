@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 from app.core.config import GENERATED_DIR, UPLOAD_DIR, templates
 from app.services.resume_service import extract_text_from_file, add_header_section, enhance_resume_text
 from app.services.scoring_service import score_resume, ats_formatting_warnings, ats_content_warnings
-from app.services.pdf_service import generate_formatted_resume_pdf
+from app.services.docx_service import generate_formatted_resume_docx
 from app.services.jd_skill_extractor import extract_skills_from_jd
 
 router = APIRouter()
@@ -77,7 +77,7 @@ async def upload_resume(
 
         download_link = None
         if generate_download.lower() == "yes":
-            logger.info("📥 Download requested. Generating enhanced resume PDF.")
+            logger.info("📥 Download requested. Generating enhanced resume DOCX.")
             
             # Get missing keywords for GPT enhancement
             resume_words = set(resume_text.lower().split())
@@ -111,9 +111,9 @@ async def upload_resume(
                 logger.info("ℹ️ No missing keywords found - no GPT enhancement needed")
                 enhanced_text = resume_text
             
-            # Generate PDF with enhanced text
-            logger.info("📄 Generating formatted PDF...")
-            output_path = generate_formatted_resume_pdf(filename, enhanced_text, user_info)
+            # Generate DOCX with enhanced text
+            logger.info("📄 Generating formatted DOCX...")
+            output_path = generate_formatted_resume_docx(filename, enhanced_text, user_info)
             download_link = f"/download/{os.path.basename(output_path)}"
             logger.info(f"✅ Download link created: {download_link}")
 
@@ -137,5 +137,10 @@ async def upload_resume(
 async def download_file(filename: str):
     file_path = os.path.join(GENERATED_DIR, filename)
     if os.path.exists(file_path):
-        return FileResponse(file_path, filename=filename, media_type='application/pdf')
+        # Determine media type based on extension
+        media_type = 'application/pdf'
+        if filename.lower().endswith('.docx'):
+            media_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+            
+        return FileResponse(file_path, filename=filename, media_type=media_type)
     raise HTTPException(status_code=404, detail="File not found")
