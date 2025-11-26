@@ -1223,8 +1223,10 @@ def parse_experience_section(content_lines: list) -> list:
             # Don't add this line to preprocessed_lines (we'll add it back later)
             continue
         
-        # Check if this line starts a new entry (has a date)
-        if is_date_line(stripped):
+        # Check if this line starts a new entry (has a date) but not a client/company line
+        # Also check for "Client:" lines which are headers in textutil output
+        is_client_header = "Client:" in stripped or "Company:" in stripped
+        if (is_date_line(stripped) and not is_client_header) or is_client_header:
             current_entry_idx += 1
             
         preprocessed_lines.append(line)
@@ -1253,6 +1255,66 @@ def parse_experience_section(content_lines: list) -> list:
         
         # Check if current line has a date (most reliable experience indicator)
         current_has_date = is_date_line(line)
+        
+        # Check for "Client:" format (textutil output)
+        # Format: Client: Name ... Date ... Role: ... Location: ...
+        client_match = re.search(r'(?:Client|Company):\s*(.+?)(?:\s{3,}|[\u2028\n]|$)', line, re.I)
+        if client_match:
+            # This is a header line
+            company_name = client_match.group(1).strip()
+            
+            # Extract Date
+            date_match = re.search(r'((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{2,4}\s*[–\-—]\s*(?:Present|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{2,4}))', line, re.I)
+            date_text = date_match.group(1) if date_match else ""
+            
+            # Extract Role
+            role_match = re.search(r'Role:\s*(.+?)(?:\s{3,}|[\u2028\n]|$|Location:)', line, re.I)
+            role_text = role_match.group(1).strip() if role_match else ""
+            
+            # Extract Location
+            location_match = re.search(r'Location:\s*(.+?)(?:\s{3,}|[\u2028\n]|$)', line, re.I)
+            location_text = location_match.group(1).strip() if location_match else ""
+            
+            entry_data['company'] = company_name
+            entry_data['location'] = location_text
+            entry_data['duration'] = date_text
+            entry_data['role'] = role_text
+            
+            # Construct header for backward compatibility
+            if location_text:
+                entry_data['header'] = f"{company_name} | {location_text} | {date_text}"
+            else:
+                entry_data['header'] = f"{company_name} | {date_text}"
+                
+            experience_entries.append(entry_data)
+            entry_idx += 1
+            i += 1
+            
+            # Collect responsibilities until next entry
+            while i < len(content_lines):
+                resp_line = content_lines[i].strip()
+                
+                # Check for start of next entry
+                if resp_line and (is_date_line(resp_line) or "Client:" in resp_line or "Company:" in resp_line):
+                    break
+                    
+                # Collect responsibilities
+                if resp_line:
+                    if resp_line.lower().startswith('environment:'):
+                        entry_data['environment'] = re.sub(r'^environment\s*:\s*', '', resp_line, flags=re.I).strip()
+                    elif not resp_line.lower().startswith('responsibilities:'):
+                         # Split the line into multiple bullets if needed
+                        split_bullets = split_experience_line(resp_line.lstrip('•- ').strip())
+                        entry_data['responsibilities'].extend(split_bullets)
+                i += 1
+            
+            # Apply environment from map if not found in text
+            if not entry_data['environment'] and entry_idx in environment_map:
+                entry_data['environment'] = environment_map[entry_idx]
+                
+            continue
+
+        # Check for split date ranges (start date on current line, end date on next line)
         
         # Check for split date ranges (start date on current line, end date on next line)
         split_date_range = ""

@@ -172,6 +172,7 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str, user_info:
         
         # --- Header Section ---
         name_paragraph = document.add_paragraph()
+        name_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
         name_run = name_paragraph.add_run(resume_data['name'])
         name_run.bold = True
         name_run.font.size = Pt(20)
@@ -179,6 +180,7 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str, user_info:
         
         if resume_data.get('title'):
             title_paragraph = document.add_paragraph()
+            title_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             title_run = title_paragraph.add_run(resume_data['title'])
             title_run.font.size = Pt(14)
             title_run.font.name = 'Arial'
@@ -186,11 +188,12 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str, user_info:
             
         # Contact Info
         contact_parts = []
-        if resume_data.get('location'): contact_parts.append(resume_data['location'])
         if resume_data.get('phone'): contact_parts.append(resume_data['phone'])
         if resume_data.get('email'): contact_parts.append(resume_data['email'])
+        if resume_data.get('location'): contact_parts.append(resume_data['location'])
         
         contact_paragraph = document.add_paragraph()
+        contact_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
         contact_run = contact_paragraph.add_run(" | ".join(contact_parts))
         contact_run.font.size = Pt(10)
         contact_run.font.name = 'Arial'
@@ -198,6 +201,7 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str, user_info:
         
         if resume_data.get('linkedin'):
             linkedin_paragraph = document.add_paragraph()
+            linkedin_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             add_hyperlink(linkedin_paragraph, resume_data['linkedin'], resume_data['linkedin'])
             linkedin_paragraph.paragraph_format.space_after = Pt(12)
         else:
@@ -234,14 +238,26 @@ def generate_formatted_resume_docx(filename: str, enhanced_text: str, user_info:
             # Section Content
             if section['type'] == 'professional_experience' or section['type'] == 'projects':
                 for entry in section['content']:
-                    # Clean up the header to extract proper company/location and date
-                    # Pass responsibilities in case header is empty (common with .doc files)
-                    cleaned_header = clean_experience_header(
-                        entry.get('header', ''),
-                        entry.get('responsibilities', [])
-                    )
-                    company_location = cleaned_header['company_location']
-                    duration = cleaned_header['date']
+                    # Use extracted fields directly
+                    company = entry.get('company', '')
+                    location = entry.get('location', '')
+                    duration = entry.get('duration', '')
+                    
+                    # Fallback to header parsing if fields are missing (backward compatibility)
+                    if not company and not duration:
+                         cleaned_header = clean_experience_header(
+                            entry.get('header', ''),
+                            entry.get('responsibilities', [])
+                        )
+                         company_location = cleaned_header['company_location']
+                         duration = cleaned_header['date']
+                    else:
+                        if company and location:
+                            company_location = f"{company} | {location}"
+                        elif company:
+                            company_location = company
+                        else:
+                            company_location = ""
                     
                     # Create a table for the header line to handle alignment
                     table = document.add_table(rows=1, cols=2)
