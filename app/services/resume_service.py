@@ -243,8 +243,14 @@ def add_header_section(resume_text):
     # Try multiple patterns for name extraction
     name = None
     
-    # First try to get the first line as name (most reliable)
-    first_line = header_search_area.split('\n')[0].strip()
+    # First try to get the first non-empty line as name (most reliable)
+    lines = header_search_area.split('\n')
+    first_line = None
+    for line in lines:
+        if line.strip():
+            first_line = line.strip()
+            break
+    
     if first_line and len(first_line.split()) <= 4 and re.match(r'^[A-Z][a-zA-Z\s]+$', first_line):
         name = first_line
     else:
