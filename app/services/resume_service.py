@@ -619,41 +619,55 @@ def parse_resume_to_structure(enhanced_text: str, user_info: dict) -> dict:
                 transformed_content = []
                 for entry in processed_content:
                     # Parse header to extract company, location, and duration
+                    # BUT respect existing fields if they are already populated (e.g. from enhanced parsing)
                     header = entry.get('header', '')
                     role = entry.get('role', '')
                     
-                    # Try to split header by | to get company/location and duration
-                    if '|' in header:
-                        parts = header.split('|')
-                        company_location = parts[0].strip() if len(parts) > 0 else ''
-                        duration = parts[1].strip() if len(parts) > 1 else ''
-                        
-                        # Further split company_location by comma to separate company and location
-                        if ',' in company_location:
-                            company_parts = company_location.split(',')
-                            company = company_parts[0].strip()
-                            location = ','.join(company_parts[1:]).strip()
-                        else:
-                            company = company_location
-                            location = ''
-                    else:
-                        # No pipe separator, try to extract duration from end
-                        date_match = re.search(r'((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}\s*(?:to|–|-)\s*(?:Present|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}))$', header, re.I)
-                        if date_match:
-                            duration = date_match.group(1)
-                            company_location = header[:date_match.start()].strip()
-                            
-                            if ',' in company_location:
-                                company_parts = company_location.split(',')
-                                company = company_parts[0].strip()
-                                location = ','.join(company_parts[1:]).strip()
+                    company = entry.get('company', '')
+                    location = entry.get('location', '')
+                    duration = entry.get('duration', '')
+                    
+                    # Only try to parse header if fields are missing
+                    if not company and not duration:
+                        # Try to split header by | to get company/location and duration
+                        if '|' in header:
+                            parts = header.split('|')
+                            if len(parts) >= 3:
+                                # Format: Company | Location | Date
+                                company = parts[0].strip()
+                                location = parts[1].strip()
+                                duration = parts[2].strip()
                             else:
-                                company = company_location
-                                location = ''
+                                # Format: Company, Location | Date
+                                company_location = parts[0].strip() if len(parts) > 0 else ''
+                                duration = parts[1].strip() if len(parts) > 1 else ''
+                                
+                                # Further split company_location by comma to separate company and location
+                                if ',' in company_location:
+                                    company_parts = company_location.split(',')
+                                    company = company_parts[0].strip()
+                                    location = ','.join(company_parts[1:]).strip()
+                                else:
+                                    company = company_location
+                                    location = ''
                         else:
-                            company = header
-                            location = ''
-                            duration = ''
+                            # No pipe separator, try to extract duration from end
+                            date_match = re.search(r'((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}\s*(?:to|–|-)\s*(?:Present|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4}))$', header, re.I)
+                            if date_match:
+                                duration = date_match.group(1)
+                                company_location = header[:date_match.start()].strip()
+                                
+                                if ',' in company_location:
+                                    company_parts = company_location.split(',')
+                                    company = company_parts[0].strip()
+                                    location = ','.join(company_parts[1:]).strip()
+                                else:
+                                    company = company_location
+                                    location = ''
+                            else:
+                                company = header
+                                location = ''
+                                duration = ''
                     
                     transformed_entry = {
                         'company': company,
@@ -1543,6 +1557,7 @@ def parse_experience_section(content_lines: list) -> list:
         # Apply environment from preprocessing if available
         if entry_idx in environment_map:
             entry_data['environment'] = environment_map[entry_idx]
+            
         
         if entry_data['header'] or entry_data['role']:
             experience_entries.append(entry_data)
@@ -1551,7 +1566,6 @@ def parse_experience_section(content_lines: list) -> list:
     return experience_entries
 
 def parse_projects_content(content_lines: list) -> list:
-    logger.info("Starting to parse project content with enhanced parser for multiple formats...")
     projects = []
     
     # Enhanced approach: Handle both role-first and company-first structures
